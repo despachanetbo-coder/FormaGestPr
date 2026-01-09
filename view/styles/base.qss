@@ -1,0 +1,304 @@
+/* view/styles/base.qss - ESTILOS ESTRUCTURALES (sin colores) */
+
+/* ===== FORM CONTROLS - ESTRUCTURA ===== */
+/* Campos de texto básicos - Solo estructura */
+QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit {
+    padding: 6px 8px;                    /* ✅ Solo padding */
+    border-radius: 4px;                  /* ✅ Solo border-radius */
+    min-height: 20px;                    /* ✅ Solo altura mínima */
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    border: 1px solid;                   /* ✅ Solo definición de borde (sin color) */
+}
+
+/* Áreas de texto multi-línea - Solo estructura */
+QTextEdit, QPlainTextEdit {
+    padding: 6px 8px;                    /* ✅ Solo padding */
+    border-radius: 4px;                  /* ✅ Solo border-radius */
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    border: 1px solid;                   /* ✅ Solo definición de borde */
+}
+
+/* Labels - Solo estructura */
+QLabel {
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    padding: 2px 0px;                    /* ✅ Solo padding reducido */
+}
+
+/* Títulos - Solo estructura */
+QLabel[title="true"] {
+    font-size: 18px;                     /* ✅ Solo tamaño de fuente */
+    font-weight: bold;                   /* ✅ Solo peso de fuente */
+    margin-bottom: 8px;                  /* ✅ Solo margen inferior */
+}
+
+/* Subtítulos - Solo estructura */
+QLabel[subtitle="true"] {
+    font-size: 12px;                     /* ✅ Solo tamaño de fuente */
+    margin-bottom: 4px;                  /* ✅ Solo margen inferior */
+}
+
+/* ComboBox - Solo estructura */
+QComboBox {
+    padding: 6px 8px;                    /* ✅ Solo padding */
+    border-radius: 4px;                  /* ✅ Solo border-radius */
+    min-height: 20px;                    /* ✅ Solo altura mínima */
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    border: 1px solid;                   /* ✅ Solo definición de borde */
+}
+
+/* Flechas de ComboBox (estructura) */
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+}
+
+QComboBox::down-arrow {
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid; /* Color será definido en tema */
+    width: 0;
+    height: 0;
+}
+
+QSpinBox, QDoubleSpinBox, QDateEdit {
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 14px;
+    min-height: 32px;
+}
+
+/* Botones de Spinner (estructura) */
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    width: 20px;
+    border-left: 1px solid; /* Color será definido en tema */
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    width: 20px;
+    border-left: 1px solid; /* Color será definido en tema */
+}
+
+/* Flechas de Spinner */
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 6px solid; /* Color será definido en tema */
+    width: 0;
+    height: 0;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid; /* Color será definido en tema */
+    width: 0;
+    height: 0;
+}
+
+/* ===== BUTTONS - ESTRUCTURA ===== */
+QPushButton {
+    padding: 8px 16px;                   /* ✅ Solo padding */
+    border-radius: 4px;                  /* ✅ Solo border-radius */
+    min-height: 36px;                    /* ✅ Solo altura mínima */
+    min-width: 80px;                     /* ✅ Solo ancho mínimo */
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    font-weight: 500;                    /* ✅ Solo peso de fuente */
+    border: 1px solid;                   /* ✅ Solo definición de borde */
+}
+
+/* GroupBox - Solo estructura */
+QGroupBox {
+    border-radius: 6px;                  /* ✅ Solo border-radius */
+    margin-top: 16px;                    /* ✅ Solo margen superior */
+    padding-top: 10px;                   /* ✅ Solo padding superior */
+    font-size: 14px;                     /* ✅ Solo tamaño de fuente */
+    font-weight: bold;                   /* ✅ Solo peso de fuente */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;           /* ✅ Solo posición del título */
+    left: 10px;                          /* ✅ Solo posición */
+    padding: 0px 5px 0px 5px;            /* ✅ Solo padding del título */
+}
+
+/* ===== LAYOUTS Y MÁRGENES ===== */
+QWidget {
+    /* Espaciado interno base */
+    padding: 0;
+    margin: 0;
+}
+
+/* Contenedores de formularios - Solo estructura */
+QWidget[form="true"] QLabel {
+    min-width: 120px;                    /* ✅ Solo ancho mínimo para alineación */
+    margin-right: 12px;                  /* ✅ Solo margen derecho */
+}
+
+QWidget[form="true"] QLineEdit,
+QWidget[form="true"] QComboBox,
+QWidget[form="true"] QSpinBox {
+    min-width: 200px;                    /* ✅ Solo ancho mínimo */
+    margin-bottom: 12px;                 /* ✅ Solo margen inferior */
+}
+
+QDialog {
+    /* Diálogos con padding consistente */
+    padding: 16px;
+}
+
+/* ===== TABLES - ESTRUCTURA ===== */
+QTableView, QTableWidget {
+    alternate-background-color: transparent;  /* ✅ Transparente para que los colores vengan en light/dark */
+    gridline-color: transparent;         /* ✅ Transparente */
+    font-size: 13px;                     /* ✅ Solo tamaño de fuente */
+}
+
+QHeaderView::section {
+    padding: 8px;                        /* ✅ Solo padding */
+    font-size: 13px;                     /* ✅ Solo tamaño de fuente */
+    font-weight: 500;                    /* ✅ Solo peso de fuente */
+    border: none;                        /* ✅ Sin borde (el color va en light/dark) */
+}
+
+/* ===== SIDEBAR - ESTRUCTURA ===== */
+#navList::item {
+    padding: 8px 12px;
+    margin: 4px 8px;
+    border-radius: 4px;
+}
+
+/* ===== SCROLLBARS - ESTRUCTURA ===== */
+QScrollBar:vertical {
+    width: 12px;
+}
+
+QScrollBar::handle:vertical {
+    min-height: 30px;
+}
+
+QScrollBar:horizontal {
+    height: 12px;
+}
+
+QScrollBar::handle:horizontal {
+    min-width: 30px;
+}
+
+/* ===== TABS - ESTRUCTURA ===== */
+/* TabWidget - Solo estructura */
+QTabWidget::pane {
+    border-radius: 10px;                  /* ✅ Solo border-radius */
+    margin-top: 5px;                         /* ✅ Solo margen */
+}
+
+QTabBar::tab {
+    padding: 8px 16px;
+    margin: 2px, 2px, 2px; 
+    padding: 12px 25px;
+    margin-right: 3px;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-weight: bold;
+    font-size: 13px;
+    min-width: 120px;
+}
+
+QTabBar::tab:first {
+    margin-left: 5px;
+}
+
+/* ===== MENUS - ESTRUCTURA ===== */
+QMenuBar {
+    padding: 6px;
+}
+
+QMenu::item {
+    padding: 8px 24px;
+}
+
+/* ===== PROGRESS BARS - ESTRUCTURA ===== */
+QProgressBar {
+    border-radius: 4px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    border-radius: 4px;
+}
+
+/* ListWidget (navbar) - Solo estructura */
+QListWidget {
+    border: none;                        /* ✅ Sin borde */
+    outline: none;                       /* ✅ Sin outline */
+}
+
+QListWidget::item {
+    padding: 10px 16px;                  /* ✅ Solo padding */
+    margin: 2px 4px;                     /* ✅ Solo margen */
+    border-radius: 6px;                  /* ✅ Solo border-radius */
+    font-size: 13px;                     /* ✅ Solo tamaño de fuente */
+}
+
+/* ToolButton (navbar alternativo) - Solo estructura */
+QToolButton {
+    padding: 10px 16px;                  /* ✅ Solo padding */
+    border-radius: 6px;                  /* ✅ Solo border-radius */
+    margin: 2px 4px;                     /* ✅ Solo margen */
+    font-size: 13px;                     /* ✅ Solo tamaño de fuente */
+    border: none;                        /* ✅ Sin borde */
+    text-align: left;                    /* ✅ Solo alineación de texto */
+}
+
+/* ===== SPIN BOXES BASE - COMPACTOS ===== */
+QSpinBox, QDoubleSpinBox {
+    padding: 4px 6px;
+    border-radius: 4px;
+    min-height: 28px;                    /* ✅ Altura consistente */
+    font-size: 14px;
+    border: 1px solid;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    width: 18px;
+    height: 13px;
+    border-left: 1px solid;
+    border-bottom: 1px solid;
+    border-top-right-radius: 3px;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    width: 18px;
+    height: 13px;
+    border-left: 1px solid;
+    border-top: 1px solid;
+    border-bottom-right-radius: 3px;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-bottom: 4px solid;
+    width: 0;
+    height: 0;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-top: 4px solid;
+    width: 0;
+    height: 0;
+}
+
+#UserLabel {
+    font-size: 14px;
+    font-weight: bold;
+    padding: 8px 16px;
+    border-radius: 8px;
+}
+
+#DashboardTitle {
+    color: white;
+}
