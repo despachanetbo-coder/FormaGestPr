@@ -16,27 +16,23 @@ class QtABCMeta(type(QObject), ABCMeta): # type: ignore
 
 class BaseTab(QWidget, ABC, metaclass=QtABCMeta):
     """Clase base abstracta para todas las pestañas de la aplicación"""
+    user_data = {}
     
     def __init__(self, tab_id: str, tab_name: str, parent=None):
-        """
-        Inicializar una pestaña base
-        
-        Args:
-            tab_id: Identificador único para CSS (ej: "inicio_tab")
-            tab_name: Nombre mostrado en la pestaña
-            parent: Widget padre (opcional)
-        """
         super().__init__(parent)
         self.tab_widget = QTabWidget()
         self.tab_id = tab_id
         self.tab_name = tab_name
+        
+        # ✅ Inicializar atributos comunes
+        self.user_data = {}
         
         # Configurar propiedades del widget
         self.setObjectName(self.tab_id)
         
         # Layout principal con header
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 15)  # Sin márgenes superiores para header
+        self.main_layout.setContentsMargins(0, 0, 0, 15)
         self.main_layout.setSpacing(0)
         
         # Agregar header a todas las pestañas
@@ -51,7 +47,7 @@ class BaseTab(QWidget, ABC, metaclass=QtABCMeta):
         self.main_layout.addWidget(self.content_widget)
         
         # Inicializar la interfaz
-        self._init_ui()
+        # self._init_ui()
         
         # Cargar estilos específicos de la pestaña
         self._load_tab_styles()
@@ -84,9 +80,11 @@ class BaseTab(QWidget, ABC, metaclass=QtABCMeta):
         top_row.addWidget(self.title_label)
         top_row.addStretch()
         
+        # ✅ CAMBIO 2: Modificar esta línea para usar datos dinámicos
+        nombre_usuario = self._get_user_display_name()  # Método nuevo
         # Nombre del usuario (en lugar de hora)
         # Esto debería venir de tu sistema de autenticación
-        self.user_label = QLabel("👤 Usuario: Administrador")
+        self.user_label = QLabel(f"👤 Usuario: {nombre_usuario}")
         self.user_label.setObjectName("UserLabel")
         self.user_label.setStyleSheet("""
             #UserLabel {
@@ -182,6 +180,22 @@ class BaseTab(QWidget, ABC, metaclass=QtABCMeta):
                     else:
                         new_lines.append(line)
                 header_frame.setStyleSheet('\n'.join(new_lines))
+    
+    def _get_user_display_name(self) -> str:
+        """Obtener nombre para mostrar del usuario"""
+        if not self.user_data:
+            return "Invitado"
+        
+        # Prioridad: nombre_completo > username
+        nombre_completo = self.user_data.get('nombre_completo', '').strip()
+        if nombre_completo:
+            return nombre_completo
+        
+        username = self.user_data.get('username', '').strip()
+        if username:
+            return username
+        
+        return "Usuario"
     
     @abstractmethod
     def _init_ui(self):
@@ -292,3 +306,17 @@ class BaseTab(QWidget, ABC, metaclass=QtABCMeta):
                 margin-left: 5px;
             }
         """)
+    
+    def set_user_data(self, user_data: dict):
+        """
+        Actualizar datos del usuario en la pestaña
+        
+        Args:
+            user_data: Diccionario con datos del usuario
+        """
+        self.user_data = user_data or {}
+        
+        # Actualizar la etiqueta si ya existe
+        if hasattr(self, 'user_label') and self.user_label:
+            nombre_usuario = self._get_user_display_name()
+            self.user_label.setText(f"👤 {nombre_usuario}")

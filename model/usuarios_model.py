@@ -340,7 +340,7 @@ class UsuariosModel:
             
             cursor = connection.cursor()
             
-            cursor.execute("SELECT * FROM obtener_usuario_por_username(%s)", (username,))
+            cursor.execute("SELECT * FROM fn_obtener_usuario_por_username(%s)", (username,))
             usuario = cursor.fetchone()
             
             if usuario:
@@ -365,9 +365,9 @@ class UsuariosModel:
     
     @staticmethod
     def buscar_usuarios(username: Optional[str] = None, 
-                       nombre_completo: Optional[str] = None,
-                       rol: Optional[str] = None, 
-                       activo: Optional[bool] = None) -> List[Dict[str, Any]]:
+                        nombre_completo: Optional[str] = None,
+                        rol: Optional[str] = None, 
+                        activo: Optional[bool] = None) -> List[Dict[str, Any]]:
         """
         Busca usuarios con filtros
         
@@ -390,7 +390,7 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.execute("SELECT * FROM buscar_usuarios(%s, %s, %s, %s)", 
-                          (username, nombre_completo, rol, activo))
+                            (username, nombre_completo, rol, activo))
             usuarios = cursor.fetchall()
             
             column_names = [desc[0] for desc in cursor.description]

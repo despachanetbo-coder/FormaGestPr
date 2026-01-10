@@ -46,8 +46,17 @@ class InicioTab(BaseTab):
     PAGE_SIZE = 10  # Registros por página
     VIEW_TYPES = ["estudiantes", "docentes", "programas"]
     
-    def __init__(self):
+    def __init__(self, user_data=None, parent=None):  # ✅ Agregar parámetro user_data
         """Inicializar la pestaña de inicio con configuración básica."""
+        # ✅ Pasar user_data al constructor base
+        super().__init__(
+            tab_id="inicio_tab", 
+            tab_name="🏠 Inicio",  # Nombre que quieras mostrar
+            parent=parent
+        )
+        
+        self.user_data = user_data or {}  # ✅ Almacenar user_data
+        
         # Estado inicial
         self.current_view = "estudiantes"  # Vista activa
         self.main_window = None  # Referencia a MainWindow
@@ -83,19 +92,16 @@ class InicioTab(BaseTab):
         self.all_prog_btn: QPushButton
         self.new_prog_btn: QPushButton
         
-        # Llamar al constructor de la clase base
-        super().__init__(
-            tab_id="inicio_tab",
-            tab_name="🏠 Gestión de Registros"
-        )
-        
         # Configurar el header específico para esta pestaña
         self.set_header_title("🏠 GESTIÓN DE REGISTROS")
         self.set_header_subtitle("Gestión de Estudiantes, Docentes y Programas Académicos")
         
-        # En tu caso, podrías obtener el usuario real de tu sistema de autenticación
-        # Por ahora usaré un usuario de ejemplo
-        self.set_user_info("Administrador", "Admin")
+        # ✅ Usar datos reales del usuario
+        nombre_usuario = self._get_user_display_name()
+        rol_usuario = self.user_data.get('rol', 'Usuario')
+        self.set_user_info(nombre_usuario, rol_usuario)
+        
+        self._init_ui()
     
     # =========================================================================
     # SECCIÓN 1: INICIALIZACIÓN Y CONFIGURACIÓN DE UI

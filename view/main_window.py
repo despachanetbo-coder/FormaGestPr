@@ -22,10 +22,14 @@ class MainWindow(QMainWindow):
     """Ventana principal con pestañas que heredan de MainTab y sistema de overlays"""
     
     def __init__(self, 
+                user_data: Optional[Dict[str, Any]] = None,
                 base_qss: str = "view/styles/base.qss",
                 color_qss: str = "view/styles/light.qss",
                 enable_hot_reload: bool = False):
         super().__init__()
+        
+        # ✅ Almacenar datos del usuario
+        self.user_data = user_data or {}
         
         self.base_qss_file = base_qss
         self.color_qss_file = color_qss
@@ -89,28 +93,45 @@ class MainWindow(QMainWindow):
     def _create_tabs(self) -> None:
         """Crear todas las pestañas de la aplicación"""
         
-        # Pestaña 1: Inicio (usando InicioTab)
-        inicio_tab = InicioTab()
+        # ✅ CAMBIO: Pasar user_data a las pestañas
+        # Pestaña 1: Inicio
+        inicio_tab = InicioTab(user_data=self.user_data)  # Pasar user_data
         self._add_tab_to_widget(inicio_tab, 0)
         
         # Pestaña 3: Análisis
-        analisis_tab = self._create_basic_tab("analisis_tab", "📈 Análisis", 
-                                            "Herramientas de análisis de datos")
+        analisis_tab = self._create_basic_tab(
+            "analisis_tab", 
+            "📈 Análisis", 
+            "Herramientas de análisis de datos",
+            user_data=self.user_data  # Pasar user_data
+        )
         self._add_tab_to_widget(analisis_tab, 1)
         
         # Pestaña 4: Reportes
-        reportes_tab = self._create_basic_tab("reportes_tab", "📊 Reportes", 
-                                            "Generación y visualización de reportes")
+        reportes_tab = self._create_basic_tab(
+            "reportes_tab", 
+            "📊 Reportes", 
+            "Generación y visualización de reportes",
+            user_data=self.user_data  # Pasar user_data
+        )
         self._add_tab_to_widget(reportes_tab, 2)
         
         # Pestaña 5: Configuración
-        config_tab = self._create_basic_tab("config_tab", "⚙️ Configuración", 
-                                            "Aquí va la configuración de la aplicación")
+        config_tab = self._create_basic_tab(
+            "config_tab", 
+            "⚙️ Configuración", 
+            "Aquí va la configuración de la aplicación",
+            user_data=self.user_data  # Pasar user_data
+        )
         self._add_tab_to_widget(config_tab, 3)
         
         # Pestaña 6: Ayuda
-        ayuda_tab = self._create_basic_tab("ayuda_tab", "❓ Ayuda", 
-                                            "Documentación y soporte técnico")
+        ayuda_tab = self._create_basic_tab(
+            "ayuda_tab", 
+            "❓ Ayuda", 
+            "Documentación y soporte técnico",
+            user_data=self.user_data  # Pasar user_data
+        )
         self._add_tab_to_widget(ayuda_tab, 4)
 
     def _add_tab_to_widget(self, tab: BaseTab, index: int) -> None:
@@ -122,12 +143,14 @@ class MainWindow(QMainWindow):
         if isinstance(tab, InicioTab):
             tab.main_window = self
     
-    def _create_basic_tab(self, tab_id: str, tab_name: str, content: str) -> BaseTab:
+    def _create_basic_tab(self, tab_id: str, tab_name: str, content: str, user_data=None) -> BaseTab:
         """Crear una pestaña básica con contenido simple"""
         
         class BasicTab(BaseTab):
-            def __init__(self):
+            def __init__(self, user_data=None):  # ✅ Agregar parámetro
+                # ✅ Pasar user_data al constructor base
                 super().__init__(tab_id=tab_id, tab_name=tab_name)
+                self.user_data = user_data or {}  # ✅ Almacenar user_data
             
             def _init_ui(self):
                 label = QLabel(content)
@@ -135,7 +158,7 @@ class MainWindow(QMainWindow):
                 label.setWordWrap(True)
                 self.add_widget(label, stretch=1)
         
-        return BasicTab()
+        return BasicTab(user_data=user_data)  # ✅ Pasar user_data
     
     def _on_tab_changed(self, index: int) -> None:
         """Manejador cuando cambia la pestaña seleccionada"""
