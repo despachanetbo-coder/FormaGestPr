@@ -1,4 +1,4 @@
-# main.py (versión actualizada)
+# Archivo: main.py (versión actualizada)
 import sys
 import os
 from PySide6.QtWidgets import QApplication

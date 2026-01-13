@@ -1,21 +1,22 @@
+# Archivo: view/tabs/inicio_tab.py
+# -*- coding: utf-8 -*-
 """
-Archivo: view/tabs/inicio_tab.py
-Descripción:Pestaña de inicio/dashboard principal de la aplicación.
-Gestiona estudiantes, docentes y programas académicos con paginación,
-búsqueda avanzada y operaciones CRUD.
+Descripción: Pestaña de inicio/dashboard principal de la aplicación.
+Gestiona estudiantes, docentes y programas académicos con botones de acción
+contextuales, paginación y operaciones CRUD mejoradas.
 Autor: Sistema FormaGestPro
-Versión: 1.0.1 (Corregido errores de tipo y métodos)
+Versión: 2.0.0 (Rediseñada con botones contextuales)
 """
 
 import logging
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
     QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QGroupBox, QGridLayout, QSizePolicy,
+    QHeaderView, QGroupBox, QGridLayout,
     QFrame, QMessageBox, QMenu, QWidget, QAbstractItemView
 )
 
@@ -31,113 +32,76 @@ logger = logging.getLogger(__name__)
 
 class InicioTab(BaseTab):
     """
-    Pestaña de inicio/dashboard principal que gestiona estudiantes,
-    docentes y programas académicos con funcionalidades CRUD completas.
+    Pestaña de inicio/dashboard principal con botones de acción contextuales.
     
     Características:
     - Tres formularios de búsqueda independientes
     - Tabla dinámica con paginación
-    - Botones de acción contextuales
-    - Menú contextual
-    - Overlay para detalles/edición
+    - Botones de acción específicos por vista (estudiantes, docentes, programas)
+    - Menú contextual adaptativo
+    - Acceso rápido a InscripcionOverlay con parámetros pre-cargados
     """
     
     # Constantes de configuración
     PAGE_SIZE = 10  # Registros por página
     VIEW_TYPES = ["estudiantes", "docentes", "programas"]
     
-    def __init__(self, user_data=None, parent=None):  # ✅ Agregar parámetro user_data
+    def __init__(self, user_data=None, parent=None):
         """Inicializar la pestaña de inicio con configuración básica."""
-        # ✅ Pasar user_data al constructor base
         super().__init__(
             tab_id="inicio_tab", 
-            tab_name="🏠 Inicio",  # Nombre que quieras mostrar
+            tab_name="🏠 Inicio",
             parent=parent
         )
         
-        self.user_data = user_data or {}  # ✅ Almacenar user_data
+        self.user_data = user_data or {}
         
         # Estado inicial
         self.current_view = "estudiantes"  # Vista activa
-        self.main_window = None  # Referencia a MainWindow
-        self.current_data = []  # Datos actuales en tabla
-        self.current_filters = {}  # Filtros aplicados actualmente
-        self.search_inputs = {}  # Referencias a inputs de búsqueda
+        self.main_window = None
+        self.current_data = []
+        self.current_filters = {}
+        self.search_inputs = {}
         
         # Configuración de paginación
         self.current_page = 1
         self.total_pages = 1
         self.total_records = 0
         
-        # Inicializar componentes de UI con tipos explícitos no-Optional
-        self.table = QTableWidget()  # Ahora es explícito, no Optional
-        self.detail_btn: QPushButton
-        self.edit_btn: QPushButton
-        self.delete_btn: QPushButton
-        self.copy_btn: QPushButton
-        self.export_btn: QPushButton
-        self.refresh_btn: QPushButton
-        self.report_btn: QPushButton
-        self.contact_btn: QPushButton
-        self.first_page_btn: QPushButton
-        self.prev_page_btn: QPushButton
-        self.next_page_btn: QPushButton
-        self.last_page_btn: QPushButton
-        self.page_label: QLabel
+        # Inicializar componentes
+        self.table = QTableWidget()
+        self.action_buttons_container = QVBoxLayout()  # Inicializar como QVBoxLayout
         
-        # Inputs específicos para programas
-        self.prog_input: QLineEdit
-        self.prog_combo: QComboBox
-        self.search_prog_btn: QPushButton
-        self.all_prog_btn: QPushButton
-        self.new_prog_btn: QPushButton
-        
-        # Configurar el header específico para esta pestaña
+        # Configurar el header
         self.set_header_title("🏠 GESTIÓN DE REGISTROS")
         self.set_header_subtitle("Gestión de Estudiantes, Docentes y Programas Académicos")
         
-        # ✅ Usar datos reales del usuario
         nombre_usuario = self._get_user_display_name()
         rol_usuario = self.user_data.get('rol', 'Usuario')
         self.set_user_info(nombre_usuario, rol_usuario)
         
         self._init_ui()
     
+    def _get_user_display_name(self) -> str:
+        """Obtener nombre de usuario para mostrar."""
+        return f"{self.user_data.get('nombres', 'Usuario')} {self.user_data.get('apellido_paterno', '')}"
+    
     # =========================================================================
     # SECCIÓN 1: INICIALIZACIÓN Y CONFIGURACIÓN DE UI
     # =========================================================================
     
     def _init_ui(self) -> None:
-        """
-        Configurar la interfaz de usuario principal.
-        Método requerido por BaseTab.
-        """
+        """Configurar la interfaz de usuario principal."""
         self.clear_content()
-        #self._setup_title_section()
         self._setup_search_forms()
         self._setup_data_section()
         self._load_initial_data()
-    
-    def _setup_title_section(self) -> None:
-        """Configurar sección de título y subtítulo."""
-        # Título principal
-        title = QLabel("🏠 GESTION DE REGISTROS")
-        title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #1976D2; margin: 10px 0;")
-        self.add_widget(title)
-        
-        # Subtítulo
-        subtitle = QLabel("Gestión de Estudiantes, Docentes y Programas Académicos")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #666; margin-bottom: 20px;")
-        self.add_widget(subtitle)
     
     def _setup_search_forms(self) -> None:
         """Configurar los tres formularios de búsqueda en una fila horizontal."""
         search_row = QHBoxLayout()
         
-        # Formulario de estudiantes (4/12 del ancho)
+        # Formulario de estudiantes
         estudiantes_box = self._create_search_form(
             "🔍 BUSCAR ESTUDIANTES",
             "Carnet:", "Ej: 1234567", "BE",
@@ -152,7 +116,7 @@ class InicioTab(BaseTab):
         # Separador visual
         search_row.addWidget(self._create_vertical_separator())
         
-        # Formulario de docentes (4/12 del ancho)
+        # Formulario de docentes
         docentes_box = self._create_search_form(
             "👨‍🏫 BUSCAR DOCENTES",
             "Carnet:", "Ej: 8765432", "CB",
@@ -167,7 +131,7 @@ class InicioTab(BaseTab):
         # Separador visual
         search_row.addWidget(self._create_vertical_separator())
         
-        # Formulario de programas (4/12 del ancho)
+        # Formulario de programas
         programas_box = self._create_programas_form()
         search_row.addWidget(programas_box, stretch=4)
         
@@ -181,14 +145,14 @@ class InicioTab(BaseTab):
         # Panel izquierdo: Tabla y paginación (10/12 del ancho)
         left_panel = QVBoxLayout()
         self._setup_table_widget()
-        left_panel.addWidget(self.table)  # self.table ya no es Optional
+        left_panel.addWidget(self.table)
         left_panel.addLayout(self._setup_pagination_controls())
         
         # Separador vertical
         data_row.addLayout(left_panel, stretch=10)
         data_row.addWidget(self._create_vertical_separator())
         
-        # Panel derecho: Botones de acción (2/12 del ancho)
+        # Panel derecho: Botones de acción contextuales (2/12 del ancho)
         right_panel = self._setup_action_buttons()
         data_row.addLayout(right_panel, stretch=2)
         
@@ -196,7 +160,6 @@ class InicioTab(BaseTab):
     
     def _setup_table_widget(self) -> None:
         """Configurar widget de tabla con comportamiento de selección."""
-        # Configurar selección de filas completas
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -237,7 +200,7 @@ class InicioTab(BaseTab):
         return pagination
     
     def _setup_action_buttons(self) -> QVBoxLayout:
-        """Configurar panel de botones de acción."""
+        """Configurar panel de botones de acción personalizados por vista."""
         right_panel = QVBoxLayout()
         
         # Título de la sección
@@ -247,27 +210,107 @@ class InicioTab(BaseTab):
         action_title.setStyleSheet("color: #1976D2; margin-bottom: 10px;")
         right_panel.addWidget(action_title)
         
-        # Crear y configurar botones
+        # Crear contenedor para botones (se actualizará dinámicamente)
+        self.action_buttons_container = QVBoxLayout()
+        right_panel.addLayout(self.action_buttons_container)
+        
+        right_panel.addStretch(1)
+        
+        # Configurar botones iniciales (para estudiantes por defecto)
+        self._setup_action_buttons_for_estudiantes()
+        
+        return right_panel
+    
+    def _setup_action_buttons_for_estudiantes(self):
+        """Configurar botones específicos para vista de estudiantes."""
+        self._clear_action_buttons()
+        
+        # Botones para estudiantes
         buttons_config = [
-            ("👁 Ver Detalles", self._on_view_details, False, "detail_btn"),
-            ("✏️ Editar", self._on_edit, False, "edit_btn"),
-            ("🗑 Eliminar", self._on_delete, False, "delete_btn"),
-            ("📋 Copiar", self._on_copy, False, "copy_btn"),
-            ("📤 Exportar", self._on_export, False, "export_btn"),
-            ("🔄 Actualizar", self._on_refresh, True, "refresh_btn"),
-            ("📊 Reporte", self._on_report, False, "report_btn"),
-            ("📧 Contactar", self._on_contact, False, "contact_btn"),
+            ("👤 Ver Perfil", self._on_view_details, False, "btn_view_profile"),
+            ("📋 Historial Académico", self._on_view_student_history, False, "btn_history"),
+            ("🎓 Nueva Inscripción", self._on_new_enrollment_student, False, "btn_new_enrollment"),
+            ("💰 Ver Pagos", self._on_view_student_payments, False, "btn_view_payments"),
+            ("✏️ Editar", self._on_edit, False, "btn_edit"),
+            ("🗑️ Desactivar", self._on_deactivate_student, False, "btn_deactivate"),
+            ("📧 Enviar Email", self._on_email_student, False, "btn_email"),
+            ("🔄 Actualizar Lista", self._on_refresh, True, "btn_refresh")
         ]
         
-        for text, slot, enabled, attr_name in buttons_config:
+        for text, slot, enabled, btn_id in buttons_config:
             button = QPushButton(text)
             button.clicked.connect(slot)
             button.setEnabled(enabled)
-            setattr(self, attr_name, button)
-            right_panel.addWidget(button)
+            button.setObjectName(btn_id)
+            button.setMinimumHeight(35)
+            self.action_buttons_container.addWidget(button)
+    
+    def _setup_action_buttons_for_docentes(self):
+        """Configurar botones específicos para vista de docentes."""
+        self._clear_action_buttons()
         
-        right_panel.addStretch(1)
-        return right_panel
+        # Botones para docentes
+        buttons_config = [
+            ("👨‍🏫 Ver Perfil", self._on_view_details, False, "btn_view_docente"),
+            ("📄 Ver CV", self._on_view_docente_cv, False, "btn_view_cv"),
+            ("✏️ Editar", self._on_edit, False, "btn_edit_docente"),
+            ("🗑️ Desactivar", self._on_deactivate_docente, False, "btn_deactivate_docente"),
+            ("📚 Asignar a Programa", self._on_assign_docente_program, False, "btn_assign"),
+            ("🔄 Actualizar Lista", self._on_refresh, True, "btn_refresh_docente")
+        ]
+        
+        for text, slot, enabled, btn_id in buttons_config:
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            button.setEnabled(enabled)
+            button.setObjectName(btn_id)
+            button.setMinimumHeight(35)
+            self.action_buttons_container.addWidget(button)
+    
+    def _setup_action_buttons_for_programas(self):
+        """Configurar botones específicos para vista de programas."""
+        self._clear_action_buttons()
+        
+        # Botones para programas
+        buttons_config = [
+            ("📚 Ver Detalles", self._on_view_details, False, "btn_view_program"),
+            ("👥 Ver Inscritos", self._on_view_program_enrolled, False, "btn_view_enrolled"),
+            ("🎓 Nueva Inscripción", self._on_new_enrollment_program, False, "btn_new_enrollment_program"),
+            ("💰 Ver Pagos", self._on_view_program_payments, False, "btn_payments"),
+            ("✏️ Editar", self._on_edit, False, "btn_edit_program"),
+            ("📊 Estadísticas", self._on_program_stats, False, "btn_stats"),
+            ("🗑️ Cancelar", self._on_cancel_program, False, "btn_cancel"),
+            ("🔄 Actualizar Lista", self._on_refresh, True, "btn_refresh_program")
+        ]
+        
+        for text, slot, enabled, btn_id in buttons_config:
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            button.setEnabled(enabled)
+            button.setObjectName(btn_id)
+            button.setMinimumHeight(35)
+            self.action_buttons_container.addWidget(button)
+    
+    def _clear_action_buttons(self):
+        """Limpiar todos los botones de acción existentes."""
+        if self.action_buttons_container:
+            while self.action_buttons_container.count():
+                item = self.action_buttons_container.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+    
+    def _update_action_buttons_based_on_view(self):
+        """Actualizar botones de acción según la vista actual."""
+        if self.current_view == "estudiantes":
+            self._setup_action_buttons_for_estudiantes()
+        elif self.current_view == "docentes":
+            self._setup_action_buttons_for_docentes()
+        elif self.current_view == "programas":
+            self._setup_action_buttons_for_programas()
+        
+        # Actualizar estado de botones según selección
+        self._on_table_selection_changed()
     
     def _load_initial_data(self) -> None:
         """Cargar datos iniciales al iniciar la pestaña."""
@@ -281,24 +324,7 @@ class InicioTab(BaseTab):
     def _create_search_form(self, title: str, label1: str, placeholder1: str,
         expedicion_default: str, label2: str, placeholder2: str,
         expediciones: list, search_slot, all_slot, new_slot) -> QGroupBox:
-        """
-        Crear un formulario de búsqueda genérico reutilizable.
-        
-        Args:
-            title: Título del grupo
-            label1: Etiqueta para el primer campo
-            placeholder1: Placeholder para el primer campo
-            expedicion_default: Valor por defecto para el combo de expedición
-            label2: Etiqueta para el segundo campo
-            placeholder2: Placeholder para el segundo campo
-            expediciones: Lista de opciones para expedición
-            search_slot: Función para búsqueda
-            all_slot: Función para mostrar todos
-            new_slot: Función para nuevo registro
-        
-        Returns:
-            QGroupBox: Grupo con el formulario configurado
-        """
+        """Crear un formulario de búsqueda genérico reutilizable."""
         box = QGroupBox(title)
         box.setStyleSheet(self._get_groupbox_style("#1976D2"))
         
@@ -318,7 +344,7 @@ class InicioTab(BaseTab):
         self._create_form_buttons(layout, search_slot, all_slot, new_slot)
         
         # Almacenar referencias
-        key = title.lower().replace(" ", "_")
+        key = title.lower().replace(" ", "_").replace("🔍_", "").replace("👨‍🏫_", "").replace("🎓_", "")
         self.search_inputs.update({
             f"{key}_input1": input1,
             f"{key}_combo": combo,
@@ -352,7 +378,7 @@ class InicioTab(BaseTab):
         lbl2 = QLabel("Estado:")
         lbl2.setFixedWidth(70)
         self.prog_combo = QComboBox()
-        self.prog_combo.addItems(["Todos", "PRE INSCRIPCION", "INICIADO", "CANCELADO", "CONCLUIDO"])
+        self.prog_combo.addItems(["Todos", "PLANIFICADO", "EN_CURSO", "FINALIZADO", "CANCELADO"])
         row2.addWidget(lbl2)
         row2.addWidget(self.prog_combo)
         layout.addLayout(row2)
@@ -382,13 +408,8 @@ class InicioTab(BaseTab):
         return box
     
     def _create_carnet_field(self, label: str, placeholder: str, default: str,
-                            expediciones: list, layout: QVBoxLayout) -> Tuple[QLineEdit, QComboBox]:
-        """
-        Crear campo para carnet/CI con combo de expedición.
-        
-        Returns:
-            tuple: (input_field, combo_box)
-        """
+                            expediciones: list, layout: QVBoxLayout) -> tuple:
+        """Crear campo para carnet/CI con combo de expedición."""
         row = QHBoxLayout()
         lbl = QLabel(label)
         lbl.setFixedWidth(60)
@@ -517,13 +538,7 @@ class InicioTab(BaseTab):
         self._setup_table_columns(columnas, [2])
     
     def _setup_table_columns(self, columns: list, stretch_columns: list) -> None:
-        """
-        Configurar columnas de la tabla.
-        
-        Args:
-            columns: Lista de nombres de columnas
-            stretch_columns: Índices de columnas que deben estirarse
-        """
+        """Configurar columnas de la tabla."""
         self.table.setColumnCount(len(columns))
         self.table.setHorizontalHeaderLabels(columns)
         
@@ -542,18 +557,47 @@ class InicioTab(BaseTab):
     # =========================================================================
     
     def _on_table_selection_changed(self) -> None:
-        """Habilitar/deshabilitar botones según selección de tabla."""
+        """Habilitar/deshabilitar botones según selección de tabla y vista actual."""
         has_selection = len(self.table.selectionModel().selectedRows()) > 0
         
-        # Habilitar botones de acción si hay selección
-        action_buttons = [
-            self.detail_btn, self.edit_btn, self.delete_btn,
-            self.copy_btn, self.export_btn, self.report_btn, self.contact_btn
-        ]
+        if not self.action_buttons_container:
+            return
         
-        for btn in action_buttons:
-            if btn:  # Verificar que el botón existe
-                btn.setEnabled(has_selection)
+        # Mapeo de botones por vista (excluyendo botón de actualizar)
+        button_configs = {
+            "estudiantes": [
+                "btn_view_profile", "btn_history", "btn_new_enrollment",
+                "btn_view_payments", "btn_edit", "btn_deactivate",
+                "btn_email"
+            ],
+            "docentes": [
+                "btn_view_docente", "btn_view_cv", "btn_edit_docente",
+                "btn_deactivate_docente", "btn_assign"
+            ],
+            "programas": [
+                "btn_view_program", "btn_view_enrolled", "btn_new_enrollment_program",
+                "btn_payments", "btn_edit_program", "btn_stats",
+                "btn_cancel"
+            ]
+        }
+        
+        # Obtener botones específicos para la vista actual
+        if self.current_view in button_configs:
+            button_names = button_configs[self.current_view]
+            for btn_name in button_names:
+                # Buscar botón por nombre de objeto
+                for i in range(self.action_buttons_container.count()):
+                    widget = self.action_buttons_container.itemAt(i).widget()
+                    if widget and widget.objectName() == btn_name:
+                        widget.setEnabled(has_selection)
+                        break
+        
+        # Botón de actualizar siempre habilitado
+        for i in range(self.action_buttons_container.count()):
+            widget = self.action_buttons_container.itemAt(i).widget()
+            if widget and widget.objectName() in ["btn_refresh", "btn_refresh_docente", "btn_refresh_program"]:
+                widget.setEnabled(True)
+                break
     
     def _on_table_double_click(self, index) -> None:
         """Manejador para doble clic en tabla (ver detalles)."""
@@ -578,33 +622,118 @@ class InicioTab(BaseTab):
             action.triggered.connect(slot)
             menu.addAction(action)
             return action
-    
-        # Acciones comunes
-        add_menu_action("👁 Ver Detalles", self._on_view_details)
-        add_menu_action("✏️ Editar", self._on_edit)
-        add_menu_action("🗑 Eliminar", self._on_delete)
         
-        # Acciones específicas por vista
-        if self.current_view == "docentes":
+        # Acciones según vista actual
+        if self.current_view == "estudiantes":
+            add_menu_action("👤 Ver Perfil", self._on_view_details)
+            add_menu_action("📋 Historial Académico", self._on_view_student_history)
+            add_menu_action("🎓 Nueva Inscripción", self._on_new_enrollment_student)
+            add_menu_action("💰 Ver Pagos", self._on_view_student_payments)
             menu.addSeparator()
-            add_menu_action("📋 Copiar", self._on_copy)
-            add_menu_action("📧 Contactar", self._on_contact)
+            add_menu_action("✏️ Editar", self._on_edit)
+            add_menu_action("🗑️ Desactivar", self._on_deactivate_student)
+            menu.addSeparator()
+            add_menu_action("📧 Enviar Email", self._on_email_student)
+            
+        elif self.current_view == "docentes":
+            add_menu_action("👨‍🏫 Ver Perfil", self._on_view_details)
+            add_menu_action("📄 Ver CV", self._on_view_docente_cv)
+            menu.addSeparator()
+            add_menu_action("✏️ Editar", self._on_edit)
+            add_menu_action("🗑️ Desactivar", self._on_deactivate_docente)
+            menu.addSeparator()
+            add_menu_action("📚 Asignar a Programa", self._on_assign_docente_program)
+            
+        elif self.current_view == "programas":
+            add_menu_action("📚 Ver Detalles", self._on_view_details)
+            add_menu_action("👥 Ver Inscritos", self._on_view_program_enrolled)
+            add_menu_action("🎓 Nueva Inscripción", self._on_new_enrollment_program)
+            add_menu_action("💰 Ver Pagos", self._on_view_program_payments)
+            menu.addSeparator()
+            add_menu_action("✏️ Editar", self._on_edit)
+            add_menu_action("📊 Estadísticas", self._on_program_stats)
+            add_menu_action("🗑️ Cancelar", self._on_cancel_program)
     
         menu.exec(self.table.viewport().mapToGlobal(position))
     
     # =========================================================================
-    # SECCIÓN 5: OPERACIONES DE DATOS - ESTUDIANTES
+    # SECCIÓN 5: MÉTODOS BASE (MANTENER PARA COMPATIBILIDAD)
+    # =========================================================================
+    
+    def _on_view_details(self) -> None:
+        """Manejador base: Ver detalles del registro seleccionado."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            self._mostrar_info("Ver Detalles", "Por favor, seleccione un registro de la tabla para ver detalles.")
+            return
+        
+        try:
+            registro_id = self._obtener_id_registro_seleccionado()
+            if not registro_id:
+                return
+            
+            # Redirigir según vista actual
+            if self.current_view == "estudiantes":
+                self._abrir_estudiante_overlay(registro_id, "lectura")
+            elif self.current_view == "docentes":
+                self._abrir_docente_overlay(registro_id, "lectura")
+            elif self.current_view == "programas":
+                self._abrir_programa_overlay(registro_id, "lectura")
+                
+        except Exception as e:
+            logger.error(f"Error viendo detalles: {e}")
+            self._mostrar_error(f"Error al ver detalles: {str(e)}")
+    
+    def _on_edit(self) -> None:
+        """Manejador base: Editar registro seleccionado."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            self._mostrar_info("Editar", "Por favor, seleccione un registro de la tabla para editar.")
+            return
+        
+        try:
+            registro_id = self._obtener_id_registro_seleccionado()
+            if not registro_id:
+                return
+            
+            # Redirigir según vista actual
+            if self.current_view == "estudiantes":
+                self._abrir_estudiante_overlay(registro_id, "editar")
+            elif self.current_view == "docentes":
+                self._abrir_docente_overlay(registro_id, "editar")
+            elif self.current_view == "programas":
+                self._abrir_programa_overlay(registro_id, "editar")
+                
+        except Exception as e:
+            logger.error(f"Error editando registro: {e}")
+            self._mostrar_error(f"Error al editar: {str(e)}")
+    
+    def _on_refresh(self) -> None:
+        """Manejador: Actualizar datos."""
+        logger.debug("Actualizando datos...")
+        self.current_page = 1
+        self.total_records = 0
+        self.total_pages = 1
+        
+        if self.current_filters:
+            # Recargar con filtros activos
+            self._load_current_page()
+        else:
+            # Recargar sin filtros
+            if self.current_view == "estudiantes":
+                self._load_estudiantes_page(0)
+            elif self.current_view == "docentes":
+                self._load_docentes_page(0)
+            elif self.current_view == "programas":
+                self._load_programas_page(0)
+    
+    # =========================================================================
+    # SECCIÓN 6: OPERACIONES DE DATOS - ESTUDIANTES
     # =========================================================================
     
     def _load_estudiantes_page(self, offset: int) -> None:
-        """
-        Cargar página de estudiantes.
-        
-        Args:
-            offset: Desplazamiento para paginación
-        """
+        """Cargar página de estudiantes."""
         try:
-            # Obtener datos
             estudiantes = EstudianteModel.buscar_estudiantes_completo(
                 limit=self.PAGE_SIZE,
                 offset=offset
@@ -620,21 +749,11 @@ class InicioTab(BaseTab):
             logger.error(f"Error cargando página de estudiantes: {e}")
             self._mostrar_error(f"Error al cargar estudiantes: {str(e)}")
     
-    def _count_estudiantes(self) -> int:
-        """Contar total de estudiantes."""
-        query = "SELECT COUNT(*) FROM estudiantes"
-        result = Database.execute_query(query, fetch_one=True)
-        return result[0] if result else 0
-    
     def _mostrar_estudiantes_en_tabla(self, estudiantes: List[Dict]) -> None:
-        """
-        Mostrar lista de estudiantes en la tabla.
-        
-        Args:
-            estudiantes: Lista de diccionarios con datos de estudiantes
-        """
+        """Mostrar lista de estudiantes en la tabla."""
         self.current_view = "estudiantes"
         self._configure_table_for_estudiantes()
+        self._update_action_buttons_based_on_view()
         
         if not estudiantes:
             logger.info("No hay estudiantes para mostrar")
@@ -660,10 +779,7 @@ class InicioTab(BaseTab):
         self._set_table_item(row, 1, carnet)
         
         # Nombre completo
-        nombres = estudiante.get('nombres', '')
-        apellido_paterno = estudiante.get('apellido_paterno', '')
-        apellido_materno = estudiante.get('apellido_materno', '')
-        nombre_completo = f"{nombres} {apellido_paterno} {apellido_materno}".strip()
+        nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')} {estudiante.get('apellido_materno', '')}".strip()
         self._set_table_item(row, 2, nombre_completo)
         
         # Email y Teléfono
@@ -682,7 +798,6 @@ class InicioTab(BaseTab):
     def _buscar_estudiantes_filtrados(self) -> None:
         """Buscar estudiantes con filtros del formulario."""
         try:
-            # Obtener filtros
             filtros = self._obtener_filtros_estudiantes()
             
             # Reiniciar paginación
@@ -702,7 +817,7 @@ class InicioTab(BaseTab):
     
     def _obtener_filtros_estudiantes(self) -> Dict:
         """Obtener filtros del formulario de estudiantes."""
-        key = "🔍_buscar_estudiantes"
+        key = "buscar_estudiantes"
         ci_input = self.search_inputs.get(f"{key}_input1")
         expedicion_combo = self.search_inputs.get(f"{key}_combo")
         nombre_input = self.search_inputs.get(f"{key}_input2")
@@ -722,7 +837,6 @@ class InicioTab(BaseTab):
         try:
             filtros = self.current_filters
             
-            # Buscar con filtros
             estudiantes = EstudianteModel.buscar_estudiantes_completo(
                 ci_numero=filtros.get('ci_numero'),
                 ci_expedicion=filtros.get('ci_expedicion'),
@@ -731,7 +845,6 @@ class InicioTab(BaseTab):
                 offset=offset
             )
             
-            # Contar con filtros
             if self.total_records == 0:
                 self.total_records = self._count_estudiantes_filtrados(filtros)
                 self.total_pages = max(1, (self.total_records + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
@@ -742,34 +855,13 @@ class InicioTab(BaseTab):
             logger.error(f"Error cargando estudiantes filtrados: {e}")
             raise
     
-    def _count_estudiantes_filtrados(self, filtros: Dict) -> int:
-        """Contar estudiantes con filtros aplicados."""
-        query = "SELECT COUNT(*) FROM estudiantes WHERE 1=1"
-        params = []
-        
-        if filtros.get('ci_numero'):
-            query += " AND ci_numero ILIKE %s"
-            params.append(f"%{filtros['ci_numero']}%")
-        
-        if filtros.get('ci_expedicion'):
-            query += " AND ci_expedicion = %s"
-            params.append(filtros['ci_expedicion'])
-        
-        if filtros.get('nombres'):
-            query += " AND nombres ILIKE %s"
-            params.append(f"%{filtros['nombres']}%")
-        
-        result = Database.execute_query(query, tuple(params), fetch_one=True)
-        return result[0] if result else 0
-    
     # =========================================================================
-    # SECCIÓN 6: OPERACIONES DE DATOS - DOCENTES
+    # SECCIÓN 7: OPERACIONES DE DATOS - DOCENTES
     # =========================================================================
     
     def _load_docentes_page(self, offset: int) -> None:
         """Cargar página de docentes."""
         try:
-            # Usar método optimizado del modelo
             docentes = DocenteModel.obtener_todos_docentes(
                 limit=self.PAGE_SIZE,
                 offset=offset
@@ -790,6 +882,7 @@ class InicioTab(BaseTab):
         """Mostrar docentes en la tabla."""
         self.current_view = "docentes"
         self._configure_table_for_docentes()
+        self._update_action_buttons_based_on_view()
         
         if not docentes:
             logger.info("No hay docentes para mostrar")
@@ -813,10 +906,7 @@ class InicioTab(BaseTab):
         self._set_table_item(row, 1, carnet)
         
         # Nombre completo
-        nombres = docente.get('nombres', '')
-        apellido_paterno = docente.get('apellido_paterno', '')
-        apellido_materno = docente.get('apellido_materno', '')
-        nombre_completo = f"{nombres} {apellido_paterno} {apellido_materno}".strip()
+        nombre_completo = f"{docente.get('nombres', '')} {docente.get('apellido_paterno', '')} {docente.get('apellido_materno', '')}".strip()
         self._set_table_item(row, 2, nombre_completo)
         
         # Contacto
@@ -839,7 +929,6 @@ class InicioTab(BaseTab):
     def _buscar_docentes_filtrados(self) -> None:
         """Buscar docentes con filtros del formulario."""
         try:
-            # Obtener filtros
             filtros = self._obtener_filtros_docentes()
             
             # Buscar docentes
@@ -864,7 +953,7 @@ class InicioTab(BaseTab):
     
     def _obtener_filtros_docentes(self) -> Dict:
         """Obtener filtros del formulario de docentes."""
-        key = "👨‍🏫_buscar_docentes"
+        key = "buscar_docentes"
         ci_input = self.search_inputs.get(f"{key}_input1")
         expedicion_combo = self.search_inputs.get(f"{key}_combo")
         nombre_input = self.search_inputs.get(f"{key}_input2")
@@ -880,13 +969,12 @@ class InicioTab(BaseTab):
         }
     
     # =========================================================================
-    # SECCIÓN 7: OPERACIONES DE DATOS - PROGRAMAS
+    # SECCIÓN 8: OPERACIONES DE DATOS - PROGRAMAS
     # =========================================================================
     
     def _load_programas_page(self, offset: int) -> None:
         """Cargar página de programas."""
         try:
-            # Ahora busca_programas() devuelve lista directa
             programas = ProgramaModel.buscar_programas(
                 limit=self.PAGE_SIZE,
                 offset=offset
@@ -906,7 +994,6 @@ class InicioTab(BaseTab):
     def _buscar_programas_filtrados(self) -> None:
         """Buscar programas con filtros del formulario."""
         try:
-            # Obtener y procesar filtros
             codigo, nombre, estado = self._obtener_filtros_programas()
 
             # Buscar programas con filtros
@@ -929,16 +1016,11 @@ class InicioTab(BaseTab):
             logger.error(f"Error buscando programas: {e}")
             self._mostrar_error(f"Error al buscar programas: {str(e)}")
     
-    def _count_programas(self) -> int:
-        """Contar total de programas."""
-        query = "SELECT COUNT(*) FROM programas"
-        result = Database.execute_query(query, fetch_one=True)
-        return result[0] if result else 0
-    
     def _mostrar_programas_en_tabla(self, programas: List[Dict]) -> None:
         """Mostrar programas en la tabla."""
         self.current_view = "programas"
         self._configure_table_for_programas()
+        self._update_action_buttons_based_on_view()
         
         if not programas:
             logger.info("No hay programas para mostrar")
@@ -988,13 +1070,8 @@ class InicioTab(BaseTab):
         self._set_table_item(row, 8, str(fecha_inicio) if fecha_inicio else '', align_center=True)
         self._set_table_item(row, 9, str(fecha_fin) if fecha_fin else '', align_center=True)
     
-    def _obtener_filtros_programas(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """
-        Obtener filtros del formulario de programas.
-        
-        Returns:
-            tuple: (codigo, nombre, estado)
-        """
+    def _obtener_filtros_programas(self) -> tuple:
+        """Obtener filtros del formulario de programas."""
         texto = self.prog_input.text().strip() if self.prog_input else ""
         estado_ui = self.prog_combo.currentText() if self.prog_combo else "Todos"
         
@@ -1007,82 +1084,12 @@ class InicioTab(BaseTab):
             else:
                 nombre = texto
         
-        # Mapear estado de UI a estado de BD
+        # Estado
         estado = None
         if estado_ui != "Todos":
-            estado_map = {
-                "PRE INSCRIPCION": "PLANIFICADO",
-                "INICIADO": "EN_CURSO",
-                "CANCELADO": "CANCELADO",
-                "CONCLUIDO": "FINALIZADO"
-            }
-            estado = estado_map.get(estado_ui, estado_ui)
+            estado = estado_ui
         
         return codigo, nombre, estado
-    
-    # =========================================================================
-    # SECCIÓN 8: PAGINACIÓN
-    # =========================================================================
-    
-    def _change_page(self, action: str) -> None:
-        """
-        Cambiar página actual según la acción.
-        
-        Args:
-            action: "first", "prev", "next", "last"
-        """
-        old_page = self.current_page
-        
-        if action == "first":
-            self.current_page = 1
-        elif action == "prev" and self.current_page > 1:
-            self.current_page -= 1
-        elif action == "next" and self.current_page < self.total_pages:
-            self.current_page += 1
-        elif action == "last":
-            self.current_page = self.total_pages
-        
-        if self.current_page != old_page:
-            logger.info(f"Cambiando a página {self.current_page}/{self.total_pages}")
-            self._load_current_page()
-            self._update_pagination_buttons()
-    
-    def _load_current_page(self) -> None:
-        """Cargar datos para la página actual."""
-        offset = (self.current_page - 1) * self.PAGE_SIZE
-        
-        try:
-            if self.current_view == "estudiantes":
-                if hasattr(self, 'current_filters') and self.current_filters.get('view') == 'estudiantes':
-                    self._load_estudiantes_filtrados_page(offset)
-                else:
-                    self._load_estudiantes_page(offset)
-            elif self.current_view == "docentes":
-                self._load_docentes_page(offset)
-            elif self.current_view == "programas":
-                self._load_programas_page(offset)
-        except Exception as e:
-            logger.error(f"Error cargando página {self.current_page}: {e}")
-            self._mostrar_error(f"Error al cargar datos: {str(e)}")
-    
-    def _update_pagination_buttons(self) -> None:
-        """Actualizar estado de botones de paginación."""
-        # Verificar que los botones existen antes de usarlos
-        if self.first_page_btn:
-            self.first_page_btn.setEnabled(self.current_page > 1)
-        if self.prev_page_btn:
-            self.prev_page_btn.setEnabled(self.current_page > 1)
-        if self.next_page_btn:
-            self.next_page_btn.setEnabled(self.current_page < self.total_pages)
-        if self.last_page_btn:
-            self.last_page_btn.setEnabled(self.current_page < self.total_pages)
-        
-        if self.page_label:
-            self.page_label.setText(f"Página {self.current_page} de {self.total_pages} (Total: {self.total_records})")
-    
-    def _actualizar_paginacion(self) -> None:
-        """Alias para compatibilidad con código existente."""
-        self._update_pagination_buttons()
     
     # =========================================================================
     # SECCIÓN 9: MANEJADORES DE EVENTOS PRINCIPALES
@@ -1111,17 +1118,6 @@ class InicioTab(BaseTab):
             metodo = getattr(main_window, 'mostrar_nuevo_estudiante', None)
             if metodo:
                 metodo()
-            else:
-                self._mostrar_info(
-                    "Nuevo Estudiante",
-                    "Funcionalidad para nuevo estudiante disponible.\n\n"
-                    "La ventana principal debe tener el método 'mostrar_nuevo_estudiante()'."
-                )
-        else:
-            self._mostrar_info(
-                "Nuevo Estudiante",
-                "No se puede acceder a la ventana principal."
-            )
     
     # --- Docentes ---
     def _on_search_docentes(self) -> None:
@@ -1145,17 +1141,6 @@ class InicioTab(BaseTab):
             metodo = getattr(main_window, 'mostrar_nuevo_docente', None)
             if metodo and callable(metodo):
                 metodo()
-            else:
-                self._mostrar_info(
-                    "Nuevo Docente",
-                    "Funcionalidad para nuevo docente disponible.\n\n"
-                    "La ventana principal debe tener el método 'mostrar_nuevo_docente()'."
-                )
-        else:
-            self._mostrar_info(
-                "Nuevo Docente",
-                "No se puede acceder a la ventana principal."
-            )
     
     # --- Programas ---
     def _on_search_programas(self) -> None:
@@ -1177,213 +1162,232 @@ class InicioTab(BaseTab):
         main_window = self._get_main_window()
         if main_window and hasattr(main_window, 'mostrar_overlay_programa'):
             main_window.mostrar_overlay_programa()
-        else:
-            self._mostrar_info(
-                "Nuevo Programa",
-                "Funcionalidad para nuevo programa disponible.\n\n"
-                "La ventana principal debe tener el método 'mostrar_overlay_programa()'."
-            )
-    
-    # --- Botones de acción ---
-    def _on_view_details(self) -> None:
-        """Manejador: Ver detalles del registro seleccionado."""
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            self._mostrar_info("Ver Detalles", "Por favor, seleccione un registro de la tabla para ver detalles.")
-            return
-        
-        try:
-            registro_id = self._obtener_id_registro_seleccionado()
-            if not registro_id:
-                return
-            
-            if self.current_view == "estudiantes":
-                # Abrir overlay de estudiante en modo visualizar
-                main_window = self._get_main_window()
-                if main_window:
-                    metodo = getattr(main_window, 'mostrar_ver_estudiante', None)
-                    if metodo and callable(metodo):
-                        metodo(registro_id)
-                    else:
-                        self._mostrar_detalles_estudiante(current_row)
-                else:
-                    self._mostrar_detalles_estudiante(current_row)
-            elif self.current_view == "docentes":
-                self._abrir_docente_overlay(registro_id, modo="lectura")
-            elif self.current_view == "programas":
-                self._abrir_programa_overlay(registro_id, modo="lectura")
-                
-        except Exception as e:
-            logger.error(f"Error viendo detalles: {e}")
-            self._mostrar_error(f"Error al ver detalles: {str(e)}")
-    
-    def _on_edit(self) -> None:
-        """Manejador: Editar registro seleccionado."""
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            self._mostrar_info("Editar", "Por favor, seleccione un registro de la tabla para editar.")
-            return
-        
-        try:
-            registro_id = self._obtener_id_registro_seleccionado()
-            if not registro_id:
-                return
-            
-            if self.current_view == "estudiantes":
-                # Abrir overlay de estudiante en modo editar
-                main_window = self._get_main_window()
-                if main_window:
-                    metodo = getattr(main_window, 'mostrar_editar_estudiante', None)
-                    if metodo and callable(metodo):
-                        metodo(registro_id)
-                    else:
-                        self._mostrar_info("Editar Estudiante", "Funcionalidad en desarrollo.")
-                else:
-                    self._mostrar_info("Editar Estudiante", "No se puede acceder a la ventana principal.")
-            elif self.current_view == "docentes":
-                self._abrir_docente_overlay(registro_id, modo="editar")
-            elif self.current_view == "programas":
-                self._abrir_programa_overlay(registro_id, modo="editar")
-                
-        except Exception as e:
-            logger.error(f"Error editando registro: {e}")
-            self._mostrar_error(f"Error al editar: {str(e)}")
-    
-    def _on_delete(self) -> None:
-        """Manejador: Eliminar registro seleccionado."""
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            self._mostrar_info("Eliminar", "Por favor, seleccione un registro de la tabla para eliminar.")
-            return
-        
-        try:
-            registro_id = self._obtener_id_registro_seleccionado()
-            if not registro_id:
-                return
-            
-            if self.current_view == "estudiantes":
-                self._eliminar_estudiante(registro_id)
-            elif self.current_view == "docentes":
-                self._eliminar_docente(registro_id)
-            elif self.current_view == "programas":
-                self._eliminar_programa(registro_id)
-                
-        except Exception as e:
-            logger.error(f"Error eliminando registro: {e}")
-            self._mostrar_error(f"Error al eliminar: {str(e)}")
-    
-    def _on_copy(self) -> None:
-        """Manejador: Copiar registro."""
-        self._mostrar_info("Copiar", "Funcionalidad de copiar en desarrollo.")
-    
-    def _on_export(self) -> None:
-        """Manejador: Exportar datos."""
-        self._mostrar_info("Exportar", "Funcionalidad de exportar en desarrollo.")
-    
-    def _on_refresh(self) -> None:
-        """Manejador: Actualizar datos."""
-        logger.debug("Actualizando datos...")
-        self.current_page = 1
-        self.total_records = 0
-        self.total_pages = 1
-        
-        if hasattr(self, 'current_filters') and self.current_filters:
-            # Recargar con filtros activos
-            self._load_current_page()
-        else:
-            # Recargar sin filtros
-            if self.current_view == "estudiantes":
-                self._load_estudiantes_page(0)
-            elif self.current_view == "docentes":
-                self._load_docentes_page(0)
-            elif self.current_view == "programas":
-                self._load_programas_page(0)
-    
-    def _on_report(self) -> None:
-        """Manejador: Generar reporte."""
-        self._mostrar_info("Reporte", "Funcionalidad de reporte en desarrollo.")
-    
-    def _on_contact(self) -> None:
-        """Manejador: Contactar."""
-        self._mostrar_info("Contactar", "Funcionalidad de contacto en desarrollo.")
     
     # =========================================================================
-    # SECCIÓN 10: OPERACIONES CRUD ESPECÍFICAS
+    # SECCIÓN 10: MÉTODOS ESPECÍFICOS PARA ESTUDIANTES
     # =========================================================================
     
-    def _abrir_docente_overlay(self, docente_id: int, modo: str = "lectura") -> None:
-        """
-        Abrir overlay para mostrar/editar docente.
+    def _on_view_student_history(self):
+        """Ver historial académico del estudiante."""
+        estudiante_id = self._obtener_id_registro_seleccionado()
+        if not estudiante_id:
+            return
         
-        Args:
-            docente_id: ID del docente
-            modo: "lectura" o "editar"
-        """
-        logger.debug(f"Abriendo overlay de docente (ID: {docente_id}, Modo: {modo})...")
+        try:
+            programas = EstudianteModel.obtener_programas_estudiante(estudiante_id)
+            
+            if programas:
+                detalles = f"<h3>📚 Historial Académico</h3>"
+                detalles += f"<p><b>Total de programas: {len(programas)}</b></p>"
+                detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
+                detalles += "<tr><th>Programa</th><th>Estado</th><th>Fecha Inscripción</th><th>Costo</th><th>Pagado</th><th>Saldo</th></tr>"
+                
+                for programa in programas:
+                    detalles += f"""
+                    <tr>
+                        <td>{programa.get('programa_nombre', '')} ({programa.get('programa_codigo', '')})</td>
+                        <td>{programa.get('estado_inscripcion', '')}</td>
+                        <td>{programa.get('fecha_inscripcion', '')}</td>
+                        <td>${programa.get('costo_total', 0):,.2f}</td>
+                        <td>${programa.get('costo_pagado', 0):,.2f}</td>
+                        <td>${programa.get('saldo_pendiente', 0):,.2f}</td>
+                    </tr>
+                    """
+                detalles += "</table>"
+            else:
+                detalles = "<p>El estudiante no tiene historial académico registrado.</p>"
+            
+            QMessageBox.information(self, "Historial Académico", detalles)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo historial académico: {e}")
+            self._mostrar_error(f"Error al obtener historial: {str(e)}")
+    
+    def _on_new_enrollment_student(self):
+        """Nueva inscripción para el estudiante seleccionado."""
+        estudiante_id = self._obtener_id_registro_seleccionado()
+        if not estudiante_id:
+            return
         
         main_window = self._get_main_window()
-        if not main_window:
-            self._mostrar_info("Docente", f"No se puede abrir el overlay de docente (ID: {docente_id})")
+        if main_window:
+            try:
+                from view.overlays.inscripcion_overlay import InscripcionOverlay
+                overlay = InscripcionOverlay(main_window)
+                overlay.show_form(
+                    modo="nuevo",
+                    estudiante_id=estudiante_id
+                )
+                
+                overlay.inscripcion_creada.connect(lambda: self._on_refresh())
+                overlay.overlay_closed.connect(lambda: overlay.deleteLater())
+                
+            except ImportError as e:
+                logger.error(f"No se pudo importar InscripcionOverlay: {e}")
+                self._mostrar_info(
+                    "Nueva Inscripción",
+                    f"Funcionalidad para nueva inscripción del estudiante ID: {estudiante_id}"
+                )
+    
+    def _on_view_student_payments(self):
+        """Ver pagos del estudiante."""
+        estudiante_id = self._obtener_id_registro_seleccionado()
+        if not estudiante_id:
             return
         
-        # Intentar usar métodos de MainWindow - usando getattr para evitar errores
-        if modo == "lectura":
-            metodo = getattr(main_window, 'mostrar_detalles_docente', None)
-            if metodo:
-                metodo(docente_id)
-            else:
-                # Fallback: usar edición en modo lectura
-                metodo_editar = getattr(main_window, 'mostrar_editar_docente', None)
-                if metodo_editar:
-                    metodo_editar(docente_id)
-                else:
-                    self._mostrar_detalles_docente_directo(docente_id, modo)
-        elif modo == "editar":
-            metodo_editar = getattr(main_window, 'mostrar_editar_docente', None)
-            if metodo_editar:
-                metodo_editar(docente_id)
-            else:
-                self._mostrar_info("Editar Docente", f"Editar docente ID: {docente_id}")
-    
-    def _mostrar_detalles_docente_directo(self, docente_id: int, modo: str) -> None:
-        """Mostrar detalles del docente directamente (fallback)."""
         try:
-            docente = DocenteModel.obtener_docente_por_id(docente_id)
-            if not docente:
-                self._mostrar_error(f"No se encontró el docente con ID {docente_id}")
-                return
+            pagos = EstudianteModel.obtener_pagos_estudiante_programa(estudiante_id)
             
-            detalles = f"""
-            <h3>{'Detalles' if modo == 'lectura' else 'Editar'} Docente</h3>
-            <table style='border-collapse: collapse; width: 100%;'>
-                <tr><td><b>ID:</b></td><td>{docente.get('id', 'N/A')}</td></tr>
-                <tr><td><b>Nombre:</b></td><td>{docente.get('nombre_completo', 'N/A')}</td></tr>
-                <tr><td><b>Carnet:</b></td><td>{docente.get('ci_numero', 'N/A')}-{docente.get('ci_expedicion', 'N/A')}</td></tr>
-                <tr><td><b>Email:</b></td><td>{docente.get('email', 'N/A')}</td></tr>
-                <tr><td><b>Teléfono:</b></td><td>{docente.get('telefono', 'N/A')}</td></tr>
-                <tr><td><b>Especialidad:</b></td><td>{docente.get('especialidad', 'N/A')}</td></tr>
-                <tr><td><b>Título:</b></td><td>{docente.get('titulo_profesional', 'N/A')}</td></tr>
-                <tr><td><b>Estado:</b></td><td>{'ACTIVO' if docente.get('activo') else 'INACTIVO'}</td></tr>
-            </table>
-            """
+            if pagos:
+                detalles = f"<h3>💰 Historial de Pagos</h3>"
+                detalles += f"<p><b>Total de transacciones: {len(pagos)}</b></p>"
+                detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
+                detalles += "<tr><th>Fecha</th><th>Forma Pago</th><th>Monto</th><th>Comprobante</th><th>Programa</th><th>Estado</th></tr>"
+                
+                total_pagado = 0
+                for pago in pagos:
+                    monto = pago.get('monto_final', 0)
+                    total_pagado += monto
+                    detalles += f"""
+                    <tr>
+                        <td>{pago.get('fecha_pago', '')[:10]}</td>
+                        <td>{pago.get('forma_pago', '')}</td>
+                        <td>${monto:,.2f}</td>
+                        <td>{pago.get('numero_comprobante', '')}</td>
+                        <td>{pago.get('programa_nombre', '')}</td>
+                        <td>{pago.get('estado_transaccion', '')}</td>
+                    </tr>
+                    """
+                detalles += f"</table><p><b>Total pagado: ${total_pagado:,.2f}</b></p>"
+            else:
+                detalles = "<p>No se encontraron pagos para este estudiante.</p>"
             
-            QMessageBox.information(
-                self,
-                f"Docente - {'Detalles' if modo == 'lectura' else 'Editar'}",
-                detalles
-            )
+            QMessageBox.information(self, "Historial de Pagos", detalles)
             
         except Exception as e:
-            logger.error(f"Error mostrando detalles docente: {e}")
-            self._mostrar_error(f"Error al mostrar docente: {str(e)}")
+            logger.error(f"Error obteniendo pagos: {e}")
+            self._mostrar_error(f"Error al obtener pagos: {str(e)}")
     
-    def _eliminar_docente(self, docente_id: int) -> None:
-        """Eliminar un docente (eliminación lógica)."""
+    def _on_deactivate_student(self):
+        """Desactivar estudiante (eliminación lógica)."""
+        estudiante_id = self._obtener_id_registro_seleccionado()
+        if not estudiante_id:
+            return
+        
         respuesta = QMessageBox.question(
             self,
-            "Confirmar eliminación",
-            f"¿Está seguro que desea eliminar al docente con ID {docente_id}?\n\n"
-            "Esta acción desactivará al docente (eliminación lógica).",
+            "Confirmar desactivación",
+            f"¿Está seguro que desea desactivar al estudiante?\n\n"
+            f"El estudiante será marcado como inactivo, pero sus datos se mantendrán en el sistema.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if respuesta == QMessageBox.StandardButton.Yes:
+            try:
+                resultado = EstudianteModel.eliminar_estudiante(estudiante_id)
+                
+                if resultado.get('exito'):
+                    self._mostrar_info("Estudiante Desactivado", 
+                        resultado.get('mensaje', 'Estudiante desactivado exitosamente.'))
+                    self._on_refresh()
+                else:
+                    self._mostrar_error(resultado.get('mensaje', 'Error al desactivar estudiante.'))
+                    
+            except Exception as e:
+                logger.error(f"Error desactivando estudiante: {e}")
+                self._mostrar_error(f"Error al desactivar estudiante: {str(e)}")
+    
+    def _on_email_student(self):
+        """Enviar email al estudiante."""
+        estudiante_id = self._obtener_id_registro_seleccionado()
+        if not estudiante_id:
+            return
+        
+        try:
+            estudiante = EstudianteModel.obtener_estudiante_por_id(estudiante_id)
+            
+            if estudiante:
+                email = estudiante.get('email', '')
+                nombre = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')}"
+                
+                if email:
+                    self._mostrar_info(
+                        "Enviar Email",
+                        f"Preparando email para: {nombre}\nEmail: {email}\n\n"
+                        "Funcionalidad de envío de email en desarrollo."
+                    )
+                else:
+                    self._mostrar_info(
+                        "Enviar Email",
+                        f"El estudiante {nombre} no tiene email registrado."
+                    )
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo email estudiante: {e}")
+            self._mostrar_error(f"Error al obtener información del estudiante: {str(e)}")
+    
+    # =========================================================================
+    # SECCIÓN 11: MÉTODOS ESPECÍFICOS PARA DOCENTES
+    # =========================================================================
+    
+    def _on_view_docente_cv(self):
+        """Ver CV del docente."""
+        docente_id = self._obtener_id_registro_seleccionado()
+        if not docente_id:
+            return
+        
+        try:
+            docente = DocenteModel.obtener_docente_por_id(docente_id)
+            
+            if docente:
+                cv_url = docente.get('curriculum_url')
+                if cv_url:
+                    import os
+                    if os.path.exists(cv_url):
+                        import platform
+                        import subprocess
+                        
+                        system = platform.system()
+                        try:
+                            if system == 'Windows':
+                                os.startfile(cv_url)
+                            elif system == 'Darwin':
+                                subprocess.run(['open', cv_url])
+                            else:
+                                subprocess.run(['xdg-open', cv_url])
+                        except Exception as e:
+                            self._mostrar_info(
+                                "Ver CV",
+                                f"CV encontrado en: {cv_url}\n\n"
+                                f"No se pudo abrir automáticamente. Por favor, ábralo manualmente."
+                            )
+                    else:
+                        self._mostrar_info(
+                            "Ver CV",
+                            "El docente tiene un CV registrado, pero el archivo no se encuentra en la ruta especificada."
+                        )
+                else:
+                    self._mostrar_info(
+                        "Ver CV",
+                        "El docente no tiene un CV registrado en el sistema."
+                    )
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo CV docente: {e}")
+            self._mostrar_error(f"Error al obtener CV: {str(e)}")
+    
+    def _on_deactivate_docente(self):
+        """Desactivar docente."""
+        docente_id = self._obtener_id_registro_seleccionado()
+        if not docente_id:
+            return
+        
+        respuesta = QMessageBox.question(
+            self,
+            "Confirmar desactivación",
+            f"¿Está seguro que desea desactivar al docente?\n\n"
+            f"El docente será marcado como inactivo (eliminación lógica).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -1392,248 +1396,307 @@ class InicioTab(BaseTab):
             try:
                 resultado = DocenteModel.eliminar_docente(docente_id)
                 if resultado.get('exito'):
-                    self._mostrar_info("Docente eliminado", resultado.get('mensaje', 'Docente eliminado exitosamente.'))
+                    self._mostrar_info("Docente desactivado", resultado.get('mensaje', 'Docente desactivado exitosamente.'))
                     self._on_refresh()
                 else:
-                    self._mostrar_error(resultado.get('mensaje', 'Error al eliminar docente.'))
+                    self._mostrar_error(resultado.get('mensaje', 'Error al desactivar docente.'))
             except Exception as e:
-                logger.error(f"Error eliminando docente: {e}")
-                self._mostrar_error(f"Error al eliminar docente: {str(e)}")
+                logger.error(f"Error desactivando docente: {e}")
+                self._mostrar_error(f"Error al desactivar docente: {str(e)}")
     
-    def _eliminar_estudiante(self, estudiante_id: int) -> None:
-        """Eliminar un estudiante."""
+    def _on_assign_docente_program(self):
+        """Asignar docente a programa."""
+        docente_id = self._obtener_id_registro_seleccionado()
+        if not docente_id:
+            return
+        
         self._mostrar_info(
-            "Eliminar Estudiante",
-            f"Funcionalidad para eliminar estudiante ID: {estudiante_id} en desarrollo."
+            "Asignar a Programa",
+            f"Funcionalidad para asignar docente ID: {docente_id} a un programa en desarrollo."
         )
     
-    def _eliminar_programa(self, programa_id: int) -> None:
-        """Eliminar un programa."""
+    # =========================================================================
+    # SECCIÓN 12: MÉTODOS ESPECÍFICOS PARA PROGRAMAS
+    # =========================================================================
+    
+    def _on_view_program_enrolled(self):
+        """Ver estudiantes inscritos en el programa."""
+        programa_id = self._obtener_id_registro_seleccionado()
+        if not programa_id:
+            return
+        
+        try:
+            resultado = ProgramaModel.obtener_programa(programa_id)
+            
+            if not resultado.get('success'):
+                self._mostrar_error("No se pudo obtener información del programa.")
+                return
+            
+            programa = resultado['data']
+            
+            # Obtener inscripciones del programa
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                self._mostrar_error("Error de conexión a la base de datos.")
+                return
+            
+            cursor = connection.cursor()
+            query = """
+            SELECT 
+                e.id, e.ci_numero, e.ci_expedicion, e.nombres, 
+                e.apellido_paterno, e.apellido_materno, e.email,
+                i.fecha_inscripcion, i.estado, i.descuento_aplicado
+            FROM inscripciones i
+            JOIN estudiantes e ON i.estudiante_id = e.id
+            WHERE i.programa_id = %s
+            ORDER BY i.fecha_inscripcion DESC
+            """
+            
+            cursor.execute(query, (programa_id,))
+            estudiantes = cursor.fetchall()
+            cursor.close()
+            Database.return_connection(connection)
+            
+            detalles = f"<h3>👥 Estudiantes Inscritos</h3>"
+            detalles += f"<p><b>Programa:</b> {programa.get('nombre', '')} ({programa.get('codigo', '')})</p>"
+            detalles += f"<p><b>Cupos:</b> {programa.get('cupos_inscritos', 0)}/{programa.get('cupos_maximos', '∞')} inscritos</p>"
+            
+            if estudiantes:
+                detalles += f"<p><b>Total de inscritos: {len(estudiantes)}</b></p>"
+                detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
+                detalles += "<tr><th>CI</th><th>Nombre</th><th>Email</th><th>Fecha Inscripción</th><th>Estado</th><th>Descuento</th></tr>"
+                
+                for estudiante in estudiantes:
+                    nombre_completo = f"{estudiante[3]} {estudiante[4]} {estudiante[5]}"
+                    ci_completo = f"{estudiante[1]}-{estudiante[2]}"
+                    descuento = f"{estudiante[9]:.0f}%" if estudiante[9] else "0%"
+                    
+                    detalles += f"""
+                    <tr>
+                        <td>{ci_completo}</td>
+                        <td>{nombre_completo}</td>
+                        <td>{estudiante[6]}</td>
+                        <td>{estudiante[7]}</td>
+                        <td>{estudiante[8]}</td>
+                        <td>{descuento}</td>
+                    </tr>
+                    """
+                detalles += "</table>"
+            else:
+                detalles += "<p>No hay estudiantes inscritos en este programa.</p>"
+            
+            QMessageBox.information(self, "Estudiantes Inscritos", detalles)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo estudiantes inscritos: {e}")
+            self._mostrar_error(f"Error al obtener estudiantes inscritos: {str(e)}")
+    
+    def _on_new_enrollment_program(self):
+        """Nueva inscripción en el programa seleccionado."""
+        programa_id = self._obtener_id_registro_seleccionado()
+        if not programa_id:
+            return
+        
+        main_window = self._get_main_window()
+        if main_window:
+            try:
+                from view.overlays.inscripcion_overlay import InscripcionOverlay
+                overlay = InscripcionOverlay(main_window)
+                overlay.show_form(
+                    modo="nuevo",
+                    programa_id=programa_id
+                )
+                
+                overlay.inscripcion_creada.connect(lambda: self._on_refresh())
+                overlay.overlay_closed.connect(lambda: overlay.deleteLater())
+                
+            except ImportError as e:
+                logger.error(f"No se pudo importar InscripcionOverlay: {e}")
+                self._mostrar_info(
+                    "Nueva Inscripción",
+                    f"Funcionalidad para nueva inscripción en programa ID: {programa_id}"
+                )
+    
+    def _on_view_program_payments(self):
+        """Ver pagos del programa."""
+        programa_id = self._obtener_id_registro_seleccionado()
+        if not programa_id:
+            return
+        
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                self._mostrar_error("Error de conexión a la base de datos.")
+                return
+            
+            cursor = connection.cursor()
+            query = """
+            SELECT 
+                t.fecha_pago, t.forma_pago, t.monto_final, t.numero_comprobante,
+                t.estado, e.nombres, e.apellido_paterno, e.apellido_materno
+            FROM transacciones t
+            JOIN estudiantes e ON t.estudiante_id = e.id
+            WHERE t.programa_id = %s
+            ORDER BY t.fecha_pago DESC
+            LIMIT 50
+            """
+            
+            cursor.execute(query, (programa_id,))
+            pagos = cursor.fetchall()
+            cursor.close()
+            Database.return_connection(connection)
+            
+            detalles = f"<h3>💰 Pagos del Programa</h3>"
+            
+            if pagos:
+                detalles += f"<p><b>Total de transacciones: {len(pagos)}</b></p>"
+                detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
+                detalles += "<tr><th>Fecha</th><th>Estudiante</th><th>Forma Pago</th><th>Monto</th><th>Comprobante</th><th>Estado</th></tr>"
+                
+                total_recaudado = 0
+                for pago in pagos:
+                    monto = pago[2] or 0
+                    total_recaudado += monto
+                    nombre_estudiante = f"{pago[5]} {pago[6]} {pago[7]}"
+                    
+                    detalles += f"""
+                    <tr>
+                        <td>{pago[0]}</td>
+                        <td>{nombre_estudiante}</td>
+                        <td>{pago[1]}</td>
+                        <td>${monto:,.2f}</td>
+                        <td>{pago[3]}</td>
+                        <td>{pago[4]}</td>
+                    </tr>
+                    """
+                detalles += f"</table><p><b>Total recaudado: ${total_recaudado:,.2f}</b></p>"
+            else:
+                detalles += "<p>No se encontraron pagos para este programa.</p>"
+            
+            QMessageBox.information(self, "Pagos del Programa", detalles)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo pagos del programa: {e}")
+            self._mostrar_error(f"Error al obtener pagos: {str(e)}")
+    
+    def _on_program_stats(self):
+        """Ver estadísticas del programa."""
+        programa_id = self._obtener_id_registro_seleccionado()
+        if not programa_id:
+            return
+        
+        try:
+            resultado = ProgramaModel.obtener_programa(programa_id)
+            
+            if resultado.get('success'):
+                programa = resultado['data']
+                
+                detalles = f"<h3>📊 Estadísticas del Programa</h3>"
+                detalles += f"<p><b>Programa:</b> {programa.get('nombre', '')} ({programa.get('codigo', '')})</p>"
+                detalles += f"<p><b>Estado:</b> {programa.get('estado', '')}</p>"
+                detalles += f"<p><b>Cupos:</b> {programa.get('cupos_inscritos', 0)}/{programa.get('cupos_maximos', '∞')}</p>"
+                detalles += f"<p><b>Duración:</b> {programa.get('duracion_meses', 0)} meses</p>"
+                detalles += f"<p><b>Horas totales:</b> {programa.get('horas_totales', 0)} horas</p>"
+                detalles += f"<p><b>Costo total:</b> ${programa.get('costo_total', 0):,.2f}</p>"
+                detalles += f"<p><b>Fecha inicio:</b> {programa.get('fecha_inicio', 'No definida')}</p>"
+                detalles += f"<p><b>Fecha fin:</b> {programa.get('fecha_fin', 'No definida')}</p>"
+                
+                QMessageBox.information(self, "Estadísticas del Programa", detalles)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo estadísticas: {e}")
+            self._mostrar_error(f"Error al obtener estadísticas: {str(e)}")
+    
+    def _on_cancel_program(self):
+        """Cancelar programa."""
+        programa_id = self._obtener_id_registro_seleccionado()
+        if not programa_id:
+            return
+        
         respuesta = QMessageBox.question(
             self,
-            "Confirmar eliminación",
-            f"¿Está seguro que desea eliminar el programa con ID {programa_id}?",
+            "Confirmar Cancelación",
+            f"¿Está seguro que desea cancelar el programa?\n\n"
+            f"Esta acción cambiará el estado del programa a 'CANCELADO'.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         
         if respuesta == QMessageBox.StandardButton.Yes:
-            self._mostrar_info(
-                "Programa eliminado",
-                f"Programa ID: {programa_id} marcado como eliminado (solo simulación)."
-            )
-            # TODO: Implementar ProgramaModel.eliminar_programa(programa_id)
-    
-    # =========================================================================
-    # SECCIÓN 11: VISTAS DE DETALLES
-    # =========================================================================
-    
-    def _abrir_programa_overlay(self, programa_id: int, modo: str = "lectura") -> None:
-        """
-        Abrir overlay para mostrar/editar programa.
-        
-        Args:
-            programa_id: ID del programa
-            modo: "lectura", "editar" o "nuevo"
-        """
-        logger.debug(f"Abriendo overlay de programa (ID: {programa_id}, Modo: {modo})...")
-        
-        main_window = self._get_main_window()
-        if not main_window:
-            self._mostrar_info("Programa", 
-                f"No se puede abrir el overlay de programa (ID: {programa_id})")
-            return
-        
-        # Intentar usar métodos de MainWindow
-        if modo == "lectura":
-            metodo = getattr(main_window, 'mostrar_detalles_programa', None)
-            if metodo:
-                metodo(programa_id)
-            else:
-                # Fallback a overlay en modo lectura
-                metodo_ver = getattr(main_window, 'mostrar_overlay_programa', None)
-                if metodo_ver:
-                    # Pasar parámetros para modo lectura
-                    metodo_ver(programa_id=programa_id, modo="lectura")
-                else:
-                    self._mostrar_detalles_programa(programa_id, modo)
-                    
-        elif modo == "editar":
-            metodo_editar = getattr(main_window, 'mostrar_editar_programa', None)
-            if metodo_editar:
-                metodo_editar(programa_id)
-            else:
-                # Fallback a mostrar_overlay_programa
-                metodo_general = getattr(main_window, 'mostrar_overlay_programa', None)
-                if metodo_general:
-                    metodo_general(programa_id=programa_id, modo="editar")
-                else:
-                    self._mostrar_info("Editar Programa", 
-                        f"Editar programa ID: {programa_id}")
-                        
-        elif modo == "nuevo":
-            metodo_nuevo = getattr(main_window, 'mostrar_nuevo_programa', None)
-            if metodo_nuevo:
-                metodo_nuevo()
-            else:
-                metodo_general = getattr(main_window, 'mostrar_overlay_programa', None)
-                if metodo_general:
-                    metodo_general(modo="nuevo")
-                else:
-                    self._mostrar_info("Nuevo Programa", 
-                        "Abrir formulario para nuevo programa")
-    
-    def _mostrar_detalles_programa(self, programa_id: int, modo: str) -> None:
-        """Mostrar detalles de un programa en formato HTML."""
-        try:
-            # Importar aquí para evitar dependencia circular
-            from model.programa_model import ProgramaModel
-            resultado = ProgramaModel.obtener_programa(programa_id)
-            
-            if not resultado.get('success'):
-                self._mostrar_error(f"No se encontró el programa con ID {programa_id}")
-                return
-            
-            programa = resultado['data']
-            
-            detalles = f"""
-            <h3>{'Detalles' if modo == 'lectura' else 'Editar'} Programa</h3>
-            <table style='border-collapse: collapse; width: 100%;'>
-                <tr><td><b>ID:</b></td><td>{programa.get('id', 'N/A')}</td></tr>
-                <tr><td><b>Código:</b></td><td>{programa.get('codigo', 'N/A')}</td></tr>
-                <tr><td><b>Nombre:</b></td><td>{programa.get('nombre', 'N/A')}</td></tr>
-                <tr><td><b>Duración:</b></td><td>{programa.get('duracion_meses', 'N/A')} meses</td></tr>
-                <tr><td><b>Horas totales:</b></td><td>{programa.get('horas_totales', 'N/A')}</td></tr>
-                <tr><td><b>Costo total:</b></td><td>${programa.get('costo_total', 0):,.2f}</td></tr>
-                <tr><td><b>Estado:</b></td><td>{programa.get('estado', 'N/A')}</td></tr>
-                <tr><td><b>Fecha inicio:</b></td><td>{programa.get('fecha_inicio', 'N/A')}</td></tr>
-                <tr><td><b>Fecha fin:</b></td><td>{programa.get('fecha_fin', 'N/A')}</td></tr>
-                <tr><td><b>Cupos:</b></td><td>{programa.get('cupos_inscritos', 0)}/{programa.get('cupos_maximos', '∞')}</td></tr>
-            </table>
-            """
-            
-            QMessageBox.information(
-                self,
-                f"Programa - {'Detalles' if modo == 'lectura' else 'Editar'}",
-                detalles
-            )
-            
-        except Exception as e:
-            logger.error(f"Error mostrando detalles programa: {e}")
-            self._mostrar_error(f"Error al mostrar programa: {str(e)}")
-    
-    def _mostrar_detalles_estudiante(self, row: int) -> None:
-        """Mostrar detalles de un estudiante en formato HTML."""
-        try:
-            detalles = self._obtener_detalles_fila(row, "estudiante")
-            QMessageBox.information(self, "Detalles del Estudiante", detalles)
-        except Exception as e:
-            logger.error(f"Error mostrando detalles estudiante: {e}")
-            self._mostrar_error(f"Error al mostrar detalles: {str(e)}")
-    
-    def _mostrar_detalles_docente(self, row: int) -> None:
-        """Mostrar detalles de un docente en formato HTML."""
-        try:
-            detalles = self._obtener_detalles_fila(row, "docente")
-            QMessageBox.information(self, "Detalles del Docente", detalles)
-        except Exception as e:
-            logger.error(f"Error mostrando detalles docente: {e}")
-            self._mostrar_error(f"Error al mostrar detalles: {str(e)}")
-    
-    def _obtener_detalles_fila(self, row: int, tipo: str) -> str:
-        """
-        Obtener detalles de una fila en formato HTML.
-        
-        Args:
-            row: Índice de la fila
-            tipo: Tipo de registro
-        
-        Returns:
-            str: HTML con detalles
-        """
-        try:
-            # Obtener datos de la fila
-            datos = []
-            column_count = self.table.columnCount()
-            for col in range(column_count):
-                item = self.table.item(row, col)
-                datos.append(item.text() if item else "N/A")
-            
-            # Generar HTML según tipo
-            if tipo == "programa":
-                return self._generar_html_programa(datos)
-            elif tipo == "estudiante":
-                return self._generar_html_estudiante(datos)
-            elif tipo == "docente":
-                return self._generar_html_docente(datos)
-            else:
-                return "<p>Tipo de registro no reconocido</p>"
+            try:
+                resultado = ProgramaModel.eliminar_programa(programa_id)
                 
-        except Exception as e:
-            logger.error(f"Error obteniendo detalles de fila: {e}")
-            return f"<p>Error al obtener detalles: {str(e)}</p>"
-    
-    def _generar_html_programa(self, datos: list) -> str:
-        """Generar HTML para detalles de programa."""
-        return f"""
-        <h3>Detalles del Programa</h3>
-        <table style='border-collapse: collapse; width: 100%;'>
-            <tr><td><b>ID:</b></td><td>{datos[0]}</td></tr>
-            <tr><td><b>Código:</b></td><td>{datos[1]}</td></tr>
-            <tr><td><b>Nombre:</b></td><td>{datos[2]}</td></tr>
-            <tr><td><b>Duración:</b></td><td>{datos[3]} meses</td></tr>
-            <tr><td><b>Horas totales:</b></td><td>{datos[4]} horas</td></tr>
-            <tr><td><b>Estado:</b></td><td>{datos[5]}</td></tr>
-            <tr><td><b>Costo total:</b></td><td>{datos[6]}</td></tr>
-            <tr><td><b>Cupos:</b></td><td>{datos[7]}</td></tr>
-            <tr><td><b>Fecha inicio:</b></td><td>{datos[8]}</td></tr>
-            <tr><td><b>Fecha fin:</b></td><td>{datos[9]}</td></tr>
-        </table>
-        """
-    
-    def _generar_html_estudiante(self, datos: list) -> str:
-        """Generar HTML para detalles de estudiante."""
-        return f"""
-        <h3>Detalles del Estudiante</h3>
-        <table style='border-collapse: collapse; width: 100%;'>
-            <tr><td><b>ID:</b></td><td>{datos[0]}</td></tr>
-            <tr><td><b>Carnet:</b></td><td>{datos[1]}</td></tr>
-            <tr><td><b>Nombre completo:</b></td><td>{datos[2]}</td></tr>
-            <tr><td><b>Email:</b></td><td>{datos[3]}</td></tr>
-            <tr><td><b>Teléfono:</b></td><td>{datos[4]}</td></tr>
-            <tr><td><b>Estado:</b></td><td>{datos[5]}</td></tr>
-            <tr><td><b>Fecha registro:</b></td><td>{datos[6]}</td></tr>
-        </table>
-        """
-    
-    def _generar_html_docente(self, datos: list) -> str:
-        """Generar HTML para detalles de docente."""
-        return f"""
-        <h3>Detalles del Docente</h3>
-        <table style='border-collapse: collapse; width: 100%;'>
-            <tr><td><b>ID:</b></td><td>{datos[0]}</td></tr>
-            <tr><td><b>Carnet:</b></td><td>{datos[1]}</td></tr>
-            <tr><td><b>Nombre completo:</b></td><td>{datos[2]}</td></tr>
-            <tr><td><b>Email:</b></td><td>{datos[3]}</td></tr>
-            <tr><td><b>Teléfono:</b></td><td>{datos[4]}</td></tr>
-            <tr><td><b>Especialidad:</b></td><td>{datos[5]}</td></tr>
-            <tr><td><b>Título:</b></td><td>{datos[6]}</td></tr>
-            <tr><td><b>Estado:</b></td><td>{datos[7]}</td></tr>
-            <tr><td><b>Fecha registro:</b></td><td>{datos[8]}</td></tr>
-        </table>
-        """
+                if resultado.get('exito'):
+                    self._mostrar_info("Programa Cancelado", resultado.get('mensaje', 'Programa cancelado exitosamente.'))
+                    self._on_refresh()
+                else:
+                    self._mostrar_error(resultado.get('mensaje', 'Error al cancelar programa.'))
+                    
+            except Exception as e:
+                logger.error(f"Error cancelando programa: {e}")
+                self._mostrar_error(f"Error al cancelar programa: {str(e)}")
     
     # =========================================================================
-    # SECCIÓN 12: UTILIDADES Y MÉTODOS AUXILIARES
+    # SECCIÓN 13: PAGINACIÓN
+    # =========================================================================
+    
+    def _change_page(self, action: str) -> None:
+        """Cambiar página actual según la acción."""
+        old_page = self.current_page
+        
+        if action == "first":
+            self.current_page = 1
+        elif action == "prev" and self.current_page > 1:
+            self.current_page -= 1
+        elif action == "next" and self.current_page < self.total_pages:
+            self.current_page += 1
+        elif action == "last":
+            self.current_page = self.total_pages
+        
+        if self.current_page != old_page:
+            logger.info(f"Cambiando a página {self.current_page}/{self.total_pages}")
+            self._load_current_page()
+            self._update_pagination_buttons()
+    
+    def _load_current_page(self) -> None:
+        """Cargar datos para la página actual."""
+        offset = (self.current_page - 1) * self.PAGE_SIZE
+        
+        try:
+            if self.current_view == "estudiantes":
+                if self.current_filters.get('view') == 'estudiantes':
+                    self._load_estudiantes_filtrados_page(offset)
+                else:
+                    self._load_estudiantes_page(offset)
+            elif self.current_view == "docentes":
+                self._load_docentes_page(offset)
+            elif self.current_view == "programas":
+                self._load_programas_page(offset)
+        except Exception as e:
+            logger.error(f"Error cargando página {self.current_page}: {e}")
+            self._mostrar_error(f"Error al cargar datos: {str(e)}")
+    
+    def _update_pagination_buttons(self) -> None:
+        """Actualizar estado de botones de paginación."""
+        self.first_page_btn.setEnabled(self.current_page > 1)
+        self.prev_page_btn.setEnabled(self.current_page > 1)
+        self.next_page_btn.setEnabled(self.current_page < self.total_pages)
+        self.last_page_btn.setEnabled(self.current_page < self.total_pages)
+        
+        self.page_label.setText(f"Página {self.current_page} de {self.total_pages} (Total: {self.total_records})")
+    
+    def _actualizar_paginacion(self) -> None:
+        """Alias para compatibilidad con código existente."""
+        self._update_pagination_buttons()
+    
+    # =========================================================================
+    # SECCIÓN 14: UTILIDADES Y MÉTODOS AUXILIARES
     # =========================================================================
     
     def _obtener_id_registro_seleccionado(self) -> Optional[int]:
-        """
-        Obtener ID del registro seleccionado en la tabla.
-        
-        Returns:
-            ID del registro o None si no hay selección
-        """
+        """Obtener ID del registro seleccionado en la tabla."""
         current_row = self.table.currentRow()
         if current_row < 0:
             return None
@@ -1650,16 +1713,7 @@ class InicioTab(BaseTab):
     
     def _set_table_item(self, row: int, col: int, text: str,
         align_center: bool = False, align_right: bool = False) -> None:
-        """
-        Configurar item en tabla con alineación opcional.
-        
-        Args:
-            row: Fila
-            col: Columna
-            text: Texto a mostrar
-            align_center: Alinear al centro
-            align_right: Alinear a la derecha
-        """
+        """Configurar item en tabla con alineación opcional."""
         item = QTableWidgetItem(text)
         if align_center:
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1668,19 +1722,10 @@ class InicioTab(BaseTab):
         self.table.setItem(row, col, item)
     
     def _create_status_item(self, estado: str) -> QTableWidgetItem:
-        """
-        Crear item de estado con color según estado.
-        
-        Args:
-            estado: Texto del estado
-        
-        Returns:
-            QTableWidgetItem: Item configurado
-        """
+        """Crear item de estado con color según estado."""
         item = QTableWidgetItem(estado)
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Color según estado
         estado_upper = estado.upper()
         if "ACTIVO" in estado_upper or "EN_CURSO" in estado_upper:
             item.setForeground(Qt.GlobalColor.green)
@@ -1693,13 +1738,61 @@ class InicioTab(BaseTab):
         
         return item
     
-    def _get_main_window(self):
-        """
-        Obtener referencia a la ventana principal.
+    def _abrir_estudiante_overlay(self, estudiante_id: int, modo: str):
+        """Abrir overlay de estudiante."""
+        main_window = self._get_main_window()
+        if not main_window:
+            return
         
-        Returns:
-            MainWindow: Instancia de MainWindow o None
-        """
+        if modo == "lectura":
+            metodo = getattr(main_window, 'mostrar_ver_estudiante', None)
+            if metodo:
+                metodo(estudiante_id)
+        elif modo == "editar":
+            metodo = getattr(main_window, 'mostrar_editar_estudiante', None)
+            if metodo:
+                metodo(estudiante_id)
+    
+    def _abrir_docente_overlay(self, docente_id: int, modo: str):
+        """Abrir overlay de docente."""
+        main_window = self._get_main_window()
+        if not main_window:
+            return
+        
+        if modo == "lectura":
+            metodo = getattr(main_window, 'mostrar_detalles_docente', None)
+            if metodo:
+                metodo(docente_id)
+        elif modo == "editar":
+            metodo = getattr(main_window, 'mostrar_editar_docente', None)
+            if metodo:
+                metodo(docente_id)
+    
+    def _abrir_programa_overlay(self, programa_id: int, modo: str):
+        """Abrir overlay de programa."""
+        main_window = self._get_main_window()
+        if not main_window:
+            return
+        
+        if modo == "lectura":
+            metodo = getattr(main_window, 'mostrar_detalles_programa', None)
+            if metodo:
+                metodo(programa_id)
+            else:
+                metodo = getattr(main_window, 'mostrar_overlay_programa', None)
+                if metodo:
+                    metodo(programa_id=programa_id, modo="lectura")
+        elif modo == "editar":
+            metodo = getattr(main_window, 'mostrar_editar_programa', None)
+            if metodo:
+                metodo(programa_id)
+            else:
+                metodo = getattr(main_window, 'mostrar_overlay_programa', None)
+                if metodo:
+                    metodo(programa_id=programa_id, modo="editar")
+    
+    def _get_main_window(self):
+        """Obtener referencia a la ventana principal."""
         if self.main_window:
             return self.main_window
         
@@ -1712,7 +1805,6 @@ class InicioTab(BaseTab):
         except ImportError:
             logger.warning("No se pudo importar MainWindow")
         
-        logger.warning("No se pudo obtener referencia a la ventana principal")
         return None
     
     def _mostrar_error(self, mensaje: str) -> None:
@@ -1723,8 +1815,28 @@ class InicioTab(BaseTab):
         """Mostrar mensaje informativo."""
         QMessageBox.information(self, titulo, mensaje)
     
+    def _count_estudiantes_filtrados(self, filtros: Dict) -> int:
+        """Contar estudiantes con filtros aplicados."""
+        query = "SELECT COUNT(*) FROM estudiantes WHERE 1=1"
+        params = []
+        
+        if filtros.get('ci_numero'):
+            query += " AND ci_numero ILIKE %s"
+            params.append(f"%{filtros['ci_numero']}%")
+        
+        if filtros.get('ci_expedicion'):
+            query += " AND ci_expedicion = %s"
+            params.append(filtros['ci_expedicion'])
+        
+        if filtros.get('nombres'):
+            query += " AND nombres ILIKE %s"
+            params.append(f"%{filtros['nombres']}%")
+        
+        result = Database.execute_query(query, tuple(params), fetch_one=True)
+        return result[0] if result else 0
+    
     # =========================================================================
-    # SECCIÓN 13: MÉTODOS DE COMPATIBILIDAD CON BASETAB
+    # SECCIÓN 15: MÉTODOS DE COMPATIBILIDAD CON BASETAB
     # =========================================================================
     
     def refresh(self) -> None:

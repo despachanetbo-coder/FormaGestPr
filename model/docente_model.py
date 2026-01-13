@@ -188,20 +188,27 @@ class DocenteModel:
             Dict con datos del docente o None si no existe
         """
         try:
-            query = """
-            SELECT * FROM public.docentes 
-            WHERE id = %s
-            """
+            connection = Database.get_connection()
+            if not connection:
+                return {
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo obtener conexión a la base de datos'
+                }
             
-            result = Database.execute_query(query, (docente_id,), fetch_one=True)
+            cursor = connection.cursor()
+            
+            # Ejecutar función
+            cursor.callproc('fn_obtener_docente_por_id', (docente_id,))
+            result = cursor.fetchone()
+            
+            cursor.close()
+            Database.return_connection(connection)
             
             if result:
                 docente = dict(zip(DocenteModel.COLUMNAS, result))
                 logger.debug(f"Docente encontrado: ID {docente_id}")
                 return docente
-            
-            logger.warning(f"Docente no encontrado: ID {docente_id}")
-            return None
             
         except Exception as e:
             logger.error(f"Error obteniendo docente por ID: {e}")
