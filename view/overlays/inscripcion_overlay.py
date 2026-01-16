@@ -28,6 +28,7 @@ from PySide6.QtGui import (
 from model.inscripcion_model import InscripcionModel
 from model.estudiante_model import EstudianteModel
 from model.programa_model import ProgramaModel
+from model.transaccion_model import TransaccionModel
 
 # Importar estilos y utilidades
 from utils.validators import Validators
@@ -64,6 +65,12 @@ class InscripcionOverlay(BaseOverlay):
         self.programa_data: Optional[Dict] = None
         self.disponibilidad_data: Optional[Dict] = None
         
+        # Listas para datos dinámicos
+        self.programas_inscritos: List[Dict] = []
+        self.estudiantes_inscritos: List[Dict] = []
+        self.programas_disponibles: List[Dict] = []
+        self.estudiantes_disponibles: List[Dict] = []
+        
         # Configurar UI específica
         self.setup_ui_especifica()
         self.setup_conexiones_especificas()
@@ -90,64 +97,220 @@ class InscripcionOverlay(BaseOverlay):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Grupo: Buscar Estudiante
-        grupo_buscar_estudiante = self.crear_grupo_buscar_estudiante()
-        main_layout.addWidget(grupo_buscar_estudiante)
+        # Splitter horizontal principal
+        splitter_principal = QSplitter(Qt.Orientation.Horizontal)
         
-        # Grupo: Información del Estudiante (oculto inicialmente)
-        self.grupo_info_estudiante = self.crear_grupo_info_estudiante()
-        self.grupo_info_estudiante.setVisible(False)
-        main_layout.addWidget(self.grupo_info_estudiante)
+        # Contenedor izquierdo
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        left_layout.setSpacing(10)
         
-        # Grupo: Buscar Programa
-        grupo_buscar_programa = self.crear_grupo_buscar_programa()
-        main_layout.addWidget(grupo_buscar_programa)
+        # Contenedor derecho
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setSpacing(10)
         
-        # Grupo: Información del Programa (oculto inicialmente)
-        self.grupo_info_programa = self.crear_grupo_info_programa()
-        self.grupo_info_programa.setVisible(False)
-        main_layout.addWidget(self.grupo_info_programa)
+        # ===== PANEL IZQUIERDO =====
+        # Grupo: Información del Estudiante (cuando estudiante_id > 0)
+        self.grupo_info_estudiante = self.crear_grupo_info_estudiante_completo()
+        left_layout.addWidget(self.grupo_info_estudiante)
         
-        # Grupo: Detalles de la Inscripción
-        self.grupo_detalles_inscripcion = self.crear_grupo_detalles_inscripcion()
-        self.grupo_detalles_inscripcion.setVisible(False)
-        main_layout.addWidget(self.grupo_detalles_inscripcion)
+        # Grupo: Buscar Estudiante (cuando programa_id > 0)
+        self.grupo_buscar_estudiante = self.crear_grupo_buscar_estudiante_completo()
+        left_layout.addWidget(self.grupo_buscar_estudiante)
         
-        # Grupo: Costos y Pagos
-        self.grupo_costos_pagos = self.crear_grupo_costos_pagos()
-        self.grupo_costos_pagos.setVisible(False)
-        main_layout.addWidget(self.grupo_costos_pagos)
+        # Grupo: Información del Programa (cuando programa_id > 0)
+        self.grupo_info_programa = self.crear_grupo_info_programa_completo()
+        left_layout.addWidget(self.grupo_info_programa)
         
-        # TabWidget para pestañas adicionales (solo visible en modo editar/lectura)
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setVisible(False)
+        left_layout.addStretch()
         
-        # Pestaña: Historial de Pagos
-        self.tab_pagos = self.crear_tab_pagos()
-        self.tab_widget.addTab(self.tab_pagos, "💰 Historial de Pagos")
+        # ===== PANEL DERECHO =====
+        # Grupo: Programas Disponibles (cuando estudiante_id > 0)
+        self.grupo_programas_disponibles = self.crear_grupo_programas_disponibles()
+        right_layout.addWidget(self.grupo_programas_disponibles)
         
-        # Pestaña: Documentos Adjuntos
-        self.tab_documentos = self.crear_tab_documentos()
-        self.tab_widget.addTab(self.tab_documentos, "📎 Documentos Adjuntos")
+        # Grupo: Buscar Programa (cuando estudiante_id > 0 y no hay programa pre-seleccionado)
+        self.grupo_buscar_programa = self.crear_grupo_buscar_programa_completo()
+        right_layout.addWidget(self.grupo_buscar_programa)
         
-        main_layout.addWidget(self.tab_widget)
+        right_layout.addStretch()
         
-        # Espacio flexible
-        main_layout.addStretch()
+        # Agregar contenedores al splitter
+        splitter_principal.addWidget(left_container)
+        splitter_principal.addWidget(right_container)
+        splitter_principal.setSizes([400, 400])
+        
+        main_layout.addWidget(splitter_principal)
+        
+        # ===== SECCIÓN DE LISTADO DINÁMICO =====
+        self.seccion_listado_frame = QFrame()
+        self.seccion_listado_frame.setVisible(False)
+        listado_layout = QVBoxLayout(self.seccion_listado_frame)
+        listado_layout.setSpacing(10)
+        
+        # Título de la sección
+        self.titulo_listado_label = QLabel()
+        self.titulo_listado_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 16px;
+            color: #2c3e50;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+        """)
+        listado_layout.addWidget(self.titulo_listado_label)
+        
+        # Contenedor scrollable para listados dinámicos
+        self.listado_scroll = QScrollArea()
+        self.listado_scroll.setWidgetResizable(True)
+        self.listado_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        self.listado_container = QWidget()
+        self.listado_layout_container = QVBoxLayout(self.listado_container)
+        self.listado_layout_container.setSpacing(15)
+        
+        self.listado_scroll.setWidget(self.listado_container)
+        listado_layout.addWidget(self.listado_scroll, 1)
+        
+        main_layout.addWidget(self.seccion_listado_frame, 1)
+        
+        # ===== SECCIÓN DE FORMULARIO DE INSCRIPCIÓN =====
+        self.seccion_formulario_frame = QFrame()
+        self.seccion_formulario_frame.setVisible(False)
+        self.seccion_formulario_frame.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 2px solid #3498db;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+        
+        formulario_layout = QVBoxLayout(self.seccion_formulario_frame)
+        
+        # Título del formulario
+        self.titulo_formulario_label = QLabel("📝 INSCRIPCIÓN A PROGRAMA")
+        self.titulo_formulario_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 18px;
+            color: #2980b9;
+            margin-bottom: 15px;
+        """)
+        formulario_layout.addWidget(self.titulo_formulario_label)
+        
+        # Formulario de inscripción
+        self.grupo_formulario_inscripcion = self.crear_grupo_formulario_inscripcion()
+        formulario_layout.addWidget(self.grupo_formulario_inscripcion)
+        
+        # Botones del formulario
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        self.btn_realizar_inscripcion = QPushButton("✅ REALIZAR INSCRIPCIÓN")
+        self.btn_realizar_inscripcion.setObjectName("btnRealizarInscripcion")
+        self.btn_realizar_inscripcion.setMinimumHeight(40)
+        self.btn_realizar_inscripcion.setStyleSheet("""
+            #btnRealizarInscripcion {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                padding: 0 30px;
+                font-size: 14px;
+            }
+            #btnRealizarInscripcion:hover {
+                background-color: #219653;
+            }
+        """)
+        
+        self.btn_cancelar_inscripcion = QPushButton("❌ CANCELAR INSCRIPCIÓN")
+        self.btn_cancelar_inscripcion.setMinimumHeight(40)
+        self.btn_cancelar_inscripcion.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                padding: 0 30px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        
+        btn_layout.addWidget(self.btn_realizar_inscripcion)
+        btn_layout.addWidget(self.btn_cancelar_inscripcion)
+        formulario_layout.addLayout(btn_layout)
+        
+        main_layout.addWidget(self.seccion_formulario_frame)
         
         scroll_widget.setWidget(main_widget)
         self.content_layout.addWidget(scroll_widget, 1)
     
-    def crear_grupo_buscar_estudiante(self):
-        """Crear grupo para buscar estudiante"""
+    def crear_grupo_info_estudiante_completo(self):
+        """Crear grupo completo para información del estudiante"""
+        grupo = QGroupBox("👤 INFORMACIÓN DEL ESTUDIANTE")
+        grupo.setObjectName("grupoInfoEstudiante")
+        grupo.setVisible(False)
+        
+        grid = QGridLayout(grupo)
+        grid.setSpacing(12)
+        grid.setContentsMargins(15, 20, 15, 15)
+        
+        # Fila 1: CI y Nombre Completo
+        grid.addWidget(QLabel("CI:"), 0, 0)
+        self.estudiante_ci_label = QLabel()
+        self.estudiante_ci_label.setStyleSheet("font-weight: bold;")
+        grid.addWidget(self.estudiante_ci_label, 0, 1)
+        
+        grid.addWidget(QLabel("Nombre Completo:"), 0, 2)
+        self.estudiante_nombre_label = QLabel()
+        self.estudiante_nombre_label.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 14px;")
+        grid.addWidget(self.estudiante_nombre_label, 0, 3)
+        
+        # Fila 2: Email y Teléfono
+        grid.addWidget(QLabel("Email:"), 1, 0)
+        self.estudiante_email_label = QLabel()
+        self.estudiante_email_label.setStyleSheet("color: #3498db;")
+        grid.addWidget(self.estudiante_email_label, 1, 1)
+        
+        grid.addWidget(QLabel("Teléfono:"), 1, 2)
+        self.estudiante_telefono_label = QLabel()
+        grid.addWidget(self.estudiante_telefono_label, 1, 3)
+        
+        # Fila 3: Profesión y Universidad
+        grid.addWidget(QLabel("Profesión:"), 2, 0)
+        self.estudiante_profesion_label = QLabel()
+        grid.addWidget(self.estudiante_profesion_label, 2, 1)
+        
+        grid.addWidget(QLabel("Universidad:"), 2, 2)
+        self.estudiante_universidad_label = QLabel()
+        grid.addWidget(self.estudiante_universidad_label, 2, 3)
+        
+        # Fila 4: Dirección
+        grid.addWidget(QLabel("Dirección:"), 3, 0)
+        self.estudiante_direccion_label = QLabel()
+        self.estudiante_direccion_label.setWordWrap(True)
+        grid.addWidget(self.estudiante_direccion_label, 3, 1, 1, 3)
+        
+        return grupo
+    
+    def crear_grupo_buscar_estudiante_completo(self):
+        """Crear grupo para buscar estudiante cuando programa_id > 0"""
         grupo = QGroupBox("🔍 BUSCAR ESTUDIANTE")
+        grupo.setObjectName("grupoBuscarEstudiante")
+        grupo.setVisible(False)
         
         layout = QVBoxLayout(grupo)
         layout.setSpacing(10)
         layout.setContentsMargins(15, 20, 15, 15)
         
         # Explicación
-        label_info = QLabel("Busque al estudiante por CI, nombres o apellidos:")
+        label_info = QLabel("Busque estudiantes que NO están inscritos en este programa:")
         label_info.setStyleSheet("color: #666; font-size: 12px;")
         layout.addWidget(label_info)
         
@@ -190,39 +353,17 @@ class InscripcionOverlay(BaseOverlay):
         
         layout.addLayout(search_layout)
         
-        # Lista de resultados (inicialmente oculta)
-        self.estudiante_results_frame = QFrame()
-        self.estudiante_results_frame.setVisible(False)
-        self.estudiante_results_frame.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                background-color: #f8f9fa;
-            }
-        """)
-        
-        results_layout = QVBoxLayout(self.estudiante_results_frame)
-        results_layout.setContentsMargins(10, 10, 10, 10)
-        
-        results_title = QLabel("📋 Resultados de búsqueda:")
-        results_title.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        results_layout.addWidget(results_title)
-        
         # Tabla de resultados
-        self.estudiante_results_table = QTableWidget()
-        self.estudiante_results_table.setColumnCount(4)
-        self.estudiante_results_table.setHorizontalHeaderLabels(["CI", "Nombre Completo", "Email", "Teléfono"])
-        self.estudiante_results_table.horizontalHeader().setStretchLastSection(True)
-        self.estudiante_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.estudiante_results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.estudiante_results_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.estudiante_results_table.setAlternatingRowColors(True)
-        self.estudiante_results_table.setMinimumHeight(100)
-        self.estudiante_results_table.setMaximumHeight(150)
+        self.estudiantes_disponibles_table = QTableWidget()
+        self.estudiantes_disponibles_table.setColumnCount(5)
+        self.estudiantes_disponibles_table.setHorizontalHeaderLabels(["CI", "Nombre Completo", "Email", "Teléfono", "Acción"])
+        self.estudiantes_disponibles_table.horizontalHeader().setStretchLastSection(True)
+        self.estudiantes_disponibles_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.estudiantes_disponibles_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.estudiantes_disponibles_table.setAlternatingRowColors(True)
+        self.estudiantes_disponibles_table.setMinimumHeight(200)
         
-        results_layout.addWidget(self.estudiante_results_table)
-        
-        layout.addWidget(self.estudiante_results_frame)
+        layout.addWidget(self.estudiantes_disponibles_table, 1)
         
         # Label de estado
         self.estudiante_status_label = QLabel("")
@@ -235,173 +376,20 @@ class InscripcionOverlay(BaseOverlay):
         
         return grupo
     
-    def crear_grupo_info_estudiante(self):
-        """Crear grupo para mostrar información del estudiante"""
-        grupo = QGroupBox("👤 INFORMACIÓN DEL ESTUDIANTE")
-        
-        grid = QGridLayout(grupo)
-        grid.setSpacing(10)
-        grid.setContentsMargins(15, 20, 15, 15)
-        
-        # Fila 1: CI
-        grid.addWidget(QLabel("CI:"), 0, 0)
-        self.estudiante_ci_label = QLabel()
-        self.estudiante_ci_label.setStyleSheet("font-weight: bold;")
-        grid.addWidget(self.estudiante_ci_label, 0, 1)
-        
-        # Fila 2: Nombre Completo
-        grid.addWidget(QLabel("Nombre Completo:"), 1, 0)
-        self.estudiante_nombre_label = QLabel()
-        self.estudiante_nombre_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        grid.addWidget(self.estudiante_nombre_label, 1, 1)
-        
-        # Fila 3: Email
-        grid.addWidget(QLabel("Email:"), 2, 0)
-        self.estudiante_email_label = QLabel()
-        grid.addWidget(self.estudiante_email_label, 2, 1)
-        
-        # Fila 4: Teléfono
-        grid.addWidget(QLabel("Teléfono:"), 3, 0)
-        self.estudiante_telefono_label = QLabel()
-        grid.addWidget(self.estudiante_telefono_label, 3, 1)
-        
-        # Fila 5: Profesión/Universidad
-        grid.addWidget(QLabel("Profesión:"), 0, 2)
-        self.estudiante_profesion_label = QLabel()
-        grid.addWidget(self.estudiante_profesion_label, 0, 3)
-        
-        grid.addWidget(QLabel("Universidad:"), 1, 2)
-        self.estudiante_universidad_label = QLabel()
-        grid.addWidget(self.estudiante_universidad_label, 1, 3)
-        
-        # Botón para cambiar estudiante
-        self.btn_cambiar_estudiante = QPushButton("🔄 Cambiar Estudiante")
-        self.btn_cambiar_estudiante.setStyleSheet("""
-            QPushButton {
-                background-color: #f39c12;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #e67e22;
-            }
-        """)
-        grid.addWidget(self.btn_cambiar_estudiante, 4, 3)
-        
-        return grupo
-    
-    def crear_grupo_buscar_programa(self):
-        """Crear grupo para buscar programa"""
-        grupo = QGroupBox("📚 BUSCAR PROGRAMA ACADÉMICO")
-        
-        layout = QVBoxLayout(grupo)
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 20, 15, 15)
-        
-        # Explicación
-        label_info = QLabel("Busque el programa por código, nombre o estado:")
-        label_info.setStyleSheet("color: #666; font-size: 12px;")
-        layout.addWidget(label_info)
-        
-        # Layout para búsqueda
-        search_layout = QHBoxLayout()
-        search_layout.setSpacing(10)
-        
-        # Campo de búsqueda
-        self.programa_search_input = QLineEdit()
-        self.programa_search_input.setPlaceholderText("Ej: PROG-2024, Diplomado en IA, o EN_CURSO")
-        self.programa_search_input.setMinimumHeight(35)
-        self.programa_search_input.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                border: 2px solid #9b59b6;
-                border-radius: 6px;
-                font-size: 13px;
-            }
-        """)
-        search_layout.addWidget(self.programa_search_input, 1)
-        
-        # Botón buscar
-        self.btn_buscar_programa = QPushButton("🔍 BUSCAR")
-        self.btn_buscar_programa.setObjectName("btnBuscarPrograma")
-        self.btn_buscar_programa.setMinimumHeight(35)
-        self.btn_buscar_programa.setStyleSheet("""
-            #btnBuscarPrograma {
-                background-color: #9b59b6;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 0 20px;
-            }
-            #btnBuscarPrograma:hover {
-                background-color: #8e44ad;
-            }
-        """)
-        search_layout.addWidget(self.btn_buscar_programa)
-        
-        layout.addLayout(search_layout)
-        
-        # Lista de resultados (inicialmente oculta)
-        self.programa_results_frame = QFrame()
-        self.programa_results_frame.setVisible(False)
-        self.programa_results_frame.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                background-color: #f8f9fa;
-            }
-        """)
-        
-        results_layout = QVBoxLayout(self.programa_results_frame)
-        results_layout.setContentsMargins(10, 10, 10, 10)
-        
-        results_title = QLabel("📋 Programas disponibles:")
-        results_title.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        results_layout.addWidget(results_title)
-        
-        # Tabla de resultados
-        self.programa_results_table = QTableWidget()
-        self.programa_results_table.setColumnCount(5)
-        self.programa_results_table.setHorizontalHeaderLabels(["Código", "Nombre", "Estado", "Cupos", "Costo Total"])
-        self.programa_results_table.horizontalHeader().setStretchLastSection(True)
-        self.programa_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.programa_results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.programa_results_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.programa_results_table.setAlternatingRowColors(True)
-        self.programa_results_table.setMinimumHeight(150)
-        self.programa_results_table.setMaximumHeight(250)
-        
-        results_layout.addWidget(self.programa_results_table)
-        
-        layout.addWidget(self.programa_results_frame)
-        
-        # Label de estado
-        self.programa_status_label = QLabel("")
-        self.programa_status_label.setStyleSheet("""
-            padding: 8px;
-            border-radius: 4px;
-            font-size: 12px;
-        """)
-        layout.addWidget(self.programa_status_label)
-        
-        return grupo
-    
-    def crear_grupo_info_programa(self):
-        """Crear grupo para mostrar información del programa"""
+    def crear_grupo_info_programa_completo(self):
+        """Crear grupo completo para información del programa"""
         grupo = QGroupBox("📊 INFORMACIÓN DEL PROGRAMA")
+        grupo.setObjectName("grupoInfoPrograma")
+        grupo.setVisible(False)
         
         grid = QGridLayout(grupo)
-        grid.setSpacing(10)
+        grid.setSpacing(12)
         grid.setContentsMargins(15, 20, 15, 15)
         
         # Fila 1: Código y Nombre
         grid.addWidget(QLabel("Código:"), 0, 0)
         self.programa_codigo_label = QLabel()
-        self.programa_codigo_label.setStyleSheet("font-weight: bold; color: #9b59b6;")
+        self.programa_codigo_label.setStyleSheet("font-weight: bold; color: #9b59b6; font-size: 14px;")
         grid.addWidget(self.programa_codigo_label, 0, 1)
         
         grid.addWidget(QLabel("Nombre:"), 0, 2)
@@ -418,303 +406,600 @@ class InscripcionOverlay(BaseOverlay):
         self.programa_horas_label = QLabel()
         grid.addWidget(self.programa_horas_label, 1, 3)
         
-        # Fila 3: Cupos
+        # Fila 3: Cupos y Estado
         grid.addWidget(QLabel("Cupos:"), 2, 0)
         self.programa_cupos_label = QLabel()
         grid.addWidget(self.programa_cupos_label, 2, 1)
         
-        # Fila 4: Estado
         grid.addWidget(QLabel("Estado:"), 2, 2)
         self.programa_estado_label = QLabel()
         self.programa_estado_label.setStyleSheet("font-weight: bold;")
         grid.addWidget(self.programa_estado_label, 2, 3)
         
-        # Fila 5: Fechas
-        grid.addWidget(QLabel("Fecha Inicio:"), 3, 0)
-        self.programa_fecha_inicio_label = QLabel()
-        grid.addWidget(self.programa_fecha_inicio_label, 3, 1)
+        # Fila 4: Costos
+        grid.addWidget(QLabel("Matrícula:"), 3, 0)
+        self.programa_matricula_label = QLabel()
+        self.programa_matricula_label.setStyleSheet("color: #27ae60;")
+        grid.addWidget(self.programa_matricula_label, 3, 1)
         
-        grid.addWidget(QLabel("Fecha Fin:"), 3, 2)
-        self.programa_fecha_fin_label = QLabel()
-        grid.addWidget(self.programa_fecha_fin_label, 3, 3)
+        grid.addWidget(QLabel("Inscripción:"), 3, 2)
+        self.programa_costo_inscripcion_label = QLabel()
+        self.programa_costo_inscripcion_label.setStyleSheet("color: #27ae60;")
+        grid.addWidget(self.programa_costo_inscripcion_label, 3, 3)
         
-        # Fila 6: Docente Coordinador
-        grid.addWidget(QLabel("Docente Coordinador:"), 4, 0)
+        # Fila 5: Total y Docente
+        grid.addWidget(QLabel("Total:"), 4, 0)
+        self.programa_total_label = QLabel()
+        self.programa_total_label.setStyleSheet("font-weight: bold; color: #e74c3c;")
+        grid.addWidget(self.programa_total_label, 4, 1)
+        
+        grid.addWidget(QLabel("Docente:"), 4, 2)
         self.programa_docente_label = QLabel()
-        grid.addWidget(self.programa_docente_label, 4, 1, 1, 3)
+        grid.addWidget(self.programa_docente_label, 4, 3)
         
-        # Botón para cambiar programa
-        self.btn_cambiar_programa = QPushButton("🔄 Cambiar Programa")
-        self.btn_cambiar_programa.setStyleSheet("""
-            QPushButton {
-                background-color: #f39c12;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #e67e22;
-            }
-        """)
-        grid.addWidget(self.btn_cambiar_programa, 5, 3)
+        # Fila 6: Resumen inscritos
+        grid.addWidget(QLabel("Inscritos:"), 5, 0)
+        self.programa_inscritos_label = QLabel()
+        self.programa_inscritos_label.setStyleSheet("color: #2980b9; font-weight: bold;")
+        grid.addWidget(self.programa_inscritos_label, 5, 1)
+        
+        grid.addWidget(QLabel("Recaudado:"), 5, 2)
+        self.programa_recaudado_label = QLabel()
+        self.programa_recaudado_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        grid.addWidget(self.programa_recaudado_label, 5, 3)
         
         return grupo
     
-    def crear_grupo_detalles_inscripcion(self):
-        """Crear grupo para detalles de la inscripción"""
-        grupo = QGroupBox("📝 DETALLES DE LA INSCRIPCIÓN")
+    def crear_grupo_programas_disponibles(self):
+        """Crear grupo para mostrar programas disponibles cuando estudiante_id > 0"""
+        grupo = QGroupBox("📚 PROGRAMAS DISPONIBLES")
+        grupo.setObjectName("grupoProgramasDisponibles")
+        grupo.setVisible(False)
+        
+        layout = QVBoxLayout(grupo)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 20, 15, 15)
+        
+        # Explicación
+        label_info = QLabel("Programas en estado ACTIVO e INSCRIPCIONES a los que el estudiante NO está inscrito:")
+        label_info.setStyleSheet("color: #666; font-size: 12px;")
+        layout.addWidget(label_info)
+        
+        # Tabla de programas disponibles
+        self.programas_disponibles_table = QTableWidget()
+        self.programas_disponibles_table.setColumnCount(6)
+        self.programas_disponibles_table.setHorizontalHeaderLabels(["Código", "Nombre", "Estado", "Cupos", "Costo", "Inscribir"])
+        self.programas_disponibles_table.horizontalHeader().setStretchLastSection(True)
+        self.programas_disponibles_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.programas_disponibles_table.setAlternatingRowColors(True)
+        self.programas_disponibles_table.setMinimumHeight(300)
+        
+        layout.addWidget(self.programas_disponibles_table, 1)
+        
+        return grupo
+    
+    def crear_grupo_buscar_programa_completo(self):
+        """Crear grupo para buscar programa cuando no hay programa pre-seleccionado"""
+        grupo = QGroupBox("🔍 BUSCAR PROGRAMA")
+        grupo.setObjectName("grupoBuscarPrograma")
+        grupo.setVisible(False)
+        
+        layout = QVBoxLayout(grupo)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 20, 15, 15)
+        
+        # Layout para búsqueda
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(10)
+        
+        # Campo de búsqueda
+        self.programa_search_input = QLineEdit()
+        self.programa_search_input.setPlaceholderText("Buscar por código o nombre...")
+        self.programa_search_input.setMinimumHeight(35)
+        search_layout.addWidget(self.programa_search_input, 1)
+        
+        # Botón buscar
+        self.btn_buscar_programa = QPushButton("🔍 BUSCAR")
+        self.btn_buscar_programa.setMinimumHeight(35)
+        search_layout.addWidget(self.btn_buscar_programa)
+        
+        layout.addLayout(search_layout)
+        
+        return grupo
+    
+    def crear_item_programa_inscrito(self, programa_data: Dict):
+        """Crear un item para mostrar un programa inscrito"""
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border-radius: 8px;
+                padding: 0px;
+            }
+        """)
+        
+        layout = QVBoxLayout(frame)
+        layout.setSpacing(10)
+        
+        # Encabezado del programa
+        header_frame = QFrame()
+        header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #e3f2fd;
+                border-radius: 6px;
+                padding: 10px;
+            }
+        """)
+        header_layout = QGridLayout(header_frame)
+        
+        # Información del programa
+        header_layout.addWidget(QLabel("<b>Código Programa:</b>"), 0, 0)
+        codigo_label = QLabel(programa_data.get('codigo', ''))
+        codigo_label.setStyleSheet("font-weight: bold; color: #2980b9;")
+        header_layout.addWidget(codigo_label, 0, 1)
+        
+        header_layout.addWidget(QLabel("<b>Descripción:</b>"), 0, 2)
+        desc_label = QLabel(programa_data.get('nombre', ''))
+        desc_label.setStyleSheet("color: #2c3e50;")
+        header_layout.addWidget(desc_label, 0, 3, 1, 2)
+        
+        # Estado y costo
+        header_layout.addWidget(QLabel("<b>Estado Inscripción:</b>"), 1, 0)
+        estado = programa_data.get('estado_inscripcion', '')
+        estado_label = QLabel(estado)
+        
+        # Mapear estados a colores según tu dominio d_estado_academico
+        if estado in ['INSCRITO', 'EN_CURSO']:
+            estado_color = "#27ae60"
+        elif estado == 'PREINSCRITO':
+            estado_color = "#f39c12"
+        elif estado == 'CONCLUIDO':
+            estado_color = "#3498db"
+        else:
+            estado_color = "#7f8c8d"
+            
+        estado_label.setStyleSheet(f"font-weight: bold; color: {estado_color};")
+        header_layout.addWidget(estado_label, 1, 1)
+        
+        header_layout.addWidget(QLabel("<b>Costo Total:</b>"), 1, 2)
+        costo_total = programa_data.get('costo_con_descuento', 0) or 0
+        descuento = programa_data.get('descuento_aplicado', 0) or 0
+        
+        if descuento > 0:
+            costo_text = f"{costo_total:.2f} Bs (Descuento: {descuento}%)"
+        else:
+            costo_text = f"{costo_total:.2f} Bs"
+            
+        costo_label = QLabel(costo_text)
+        costo_label.setStyleSheet("font-weight: bold; color: #e74c3c;")
+        header_layout.addWidget(costo_label, 1, 3)
+        
+        header_layout.addWidget(QLabel("<b>Saldo Pendiente:</b>"), 1, 4)
+        saldo_pendiente = programa_data.get('saldo_pendiente', 0) or 0
+        saldo_label = QLabel(f"{saldo_pendiente:.2f} Bs")
+        saldo_color = "#e74c3c" if saldo_pendiente > 0 else "#27ae60"
+        saldo_label.setStyleSheet(f"font-weight: bold; color: {saldo_color};")
+        header_layout.addWidget(saldo_label, 1, 5)
+        
+        layout.addWidget(header_frame)
+        
+        # Tabla de transacciones si existen
+        transacciones = programa_data.get('transacciones', [])
+        if transacciones:
+            trans_label = QLabel("<b>📊 Historial de Transacciones:</b>")
+            trans_label.setStyleSheet("color: #2c3e50; font-size: 13px;")
+            layout.addWidget(trans_label)
+            
+            trans_table = QTableWidget()
+            trans_table.setColumnCount(7)
+            trans_table.setHorizontalHeaderLabels(["N° Transacción", "Fecha", "Monto", "Forma Pago", "Comprobante", "Estado", "Documentos"])
+            trans_table.horizontalHeader().setStretchLastSection(True)
+            trans_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            trans_table.setAlternatingRowColors(True)
+            trans_table.setMaximumHeight(150)
+            
+            trans_table.setRowCount(len(transacciones))
+            
+            for i, transaccion in enumerate(transacciones):
+                # Número de transacción
+                trans_table.setItem(i, 0, QTableWidgetItem(transaccion.get('numero_transaccion', '')))
+                
+                # Fecha
+                fecha = transaccion.get('fecha_pago', '')
+                trans_table.setItem(i, 1, QTableWidgetItem(str(fecha)[:10]))
+                
+                # Monto
+                monto = transaccion.get('monto_final', 0)
+                trans_table.setItem(i, 2, QTableWidgetItem(f"{monto:.2f} Bs"))
+                
+                # Forma de pago
+                trans_table.setItem(i, 3, QTableWidgetItem(transaccion.get('forma_pago', '')))
+                
+                # Comprobante
+                trans_table.setItem(i, 4, QTableWidgetItem(transaccion.get('numero_comprobante', '')))
+                
+                # Estado
+                estado_trans = transaccion.get('estado', '')
+                estado_item = QTableWidgetItem(estado_trans)
+                if estado_trans == 'CONFIRMADO':
+                    estado_item.setForeground(QBrush(QColor("#27ae60")))
+                elif estado_trans == 'REGISTRADO':
+                    estado_item.setForeground(QBrush(QColor("#f39c12")))
+                else:
+                    estado_item.setForeground(QBrush(QColor("#e74c3c")))
+                trans_table.setItem(i, 5, estado_item)
+                
+                # Documentos
+                num_docs = transaccion.get('numero_documentos', 0)
+                docs_text = f"{num_docs} documento{'s' if num_docs != 1 else ''}"
+                trans_table.setItem(i, 6, QTableWidgetItem(docs_text))
+            
+            # Ajustar tamaño de columnas
+            trans_table.resizeColumnsToContents()
+            layout.addWidget(trans_table)
+        else:
+            # Mostrar mensaje si no hay transacciones
+            no_trans_label = QLabel("📭 No hay transacciones registradas para esta inscripción")
+            no_trans_label.setStyleSheet("""
+                color: #95a5a6;
+                font-style: italic;
+                font-size: 12px;
+                padding: 10px;
+                text-align: center;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+            """)
+            layout.addWidget(no_trans_label)
+        
+        # Botón para realizar pago si hay saldo pendiente
+        saldo_pendiente = programa_data.get('saldo_pendiente', 0)
+        inscripcion_id = programa_data.get('inscripcion_id')
+        
+        if saldo_pendiente > 0 and inscripcion_id:
+            btn_frame = QFrame()
+            btn_layout = QHBoxLayout(btn_frame)
+            btn_layout.addStretch()
+            
+            btn_realizar_pago = QPushButton("💰 REALIZAR PAGO")
+            btn_realizar_pago.setMinimumHeight(35)
+            btn_realizar_pago.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 0 20px;
+                }
+                QPushButton:hover {
+                    background-color: #219653;
+                }
+            """)
+            btn_realizar_pago.clicked.connect(lambda: self.realizar_pago_inscripcion(inscripcion_id))
+            
+            btn_layout.addWidget(btn_realizar_pago)
+            layout.addWidget(btn_frame)
+        
+        return frame
+    
+    def crear_item_estudiante_inscrito(self, estudiante_data: Dict):
+        """Crear un item para mostrar un estudiante inscrito"""
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border-radius: 8px;
+                padding: 0px;
+            }
+        """)
+        
+        layout = QVBoxLayout(frame)
+        layout.setSpacing(10)
+        
+        # Encabezado del estudiante
+        header_frame = QFrame()
+        header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fff3cd;
+                border-radius: 6px;
+                padding: 10px;
+            }
+        """)
+        header_layout = QGridLayout(header_frame)
+        
+        # Información del estudiante
+        header_layout.addWidget(QLabel("<b>Carnet:</b>"), 0, 0)
+        ci_label = QLabel(f"{estudiante_data.get('ci_numero', '')}-{estudiante_data.get('ci_expedicion', '')}")
+        ci_label.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(ci_label, 0, 1)
+        
+        header_layout.addWidget(QLabel("<b>Nombre Completo:</b>"), 0, 2)
+        nombre_label = QLabel(f"{estudiante_data.get('nombres', '')} {estudiante_data.get('apellido_paterno', '')}")
+        nombre_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        header_layout.addWidget(nombre_label, 0, 3, 1, 2)
+        
+        # Información de contacto
+        header_layout.addWidget(QLabel("<b>Email:</b>"), 1, 0)
+        email_label = QLabel(estudiante_data.get('email', ''))
+        header_layout.addWidget(email_label, 1, 1)
+        
+        header_layout.addWidget(QLabel("<b>Teléfono:</b>"), 1, 2)
+        telefono_label = QLabel(estudiante_data.get('telefono', ''))
+        header_layout.addWidget(telefono_label, 1, 3)
+        
+        # Estado de inscripción y saldo
+        header_layout.addWidget(QLabel("<b>Estado Inscripción:</b>"), 2, 0)
+        estado_label = QLabel(estudiante_data.get('estado_inscripcion', ''))
+        estado_color = "#27ae60" if estudiante_data.get('estado_inscripcion') in ['INSCRITO', 'EN_CURSO'] else "#f39c12"
+        estado_label.setStyleSheet(f"font-weight: bold; color: {estado_color};")
+        header_layout.addWidget(estado_label, 2, 1)
+        
+        header_layout.addWidget(QLabel("<b>Saldo Pendiente:</b>"), 2, 2)
+        saldo_label = QLabel(f"{estudiante_data.get('saldo_pendiente', 0):.2f} Bs")
+        saldo_color = "#e74c3c" if estudiante_data.get('saldo_pendiente', 0) > 0 else "#27ae60"
+        saldo_label.setStyleSheet(f"font-weight: bold; color: {saldo_color};")
+        header_layout.addWidget(saldo_label, 2, 3)
+        
+        layout.addWidget(header_frame)
+        
+        # Tabla de pagos (si existe información)
+        if estudiante_data.get('pagos'):
+            pagos_label = QLabel("<b>📊 Historial de Pagos:</b>")
+            pagos_label.setStyleSheet("color: #2c3e50; font-size: 13px;")
+            layout.addWidget(pagos_label)
+            
+            pagos_table = QTableWidget()
+            pagos_table.setColumnCount(6)
+            pagos_table.setHorizontalHeaderLabels(["Fecha", "Monto", "Forma Pago", "Comprobante", "Estado", "Documentos"])
+            pagos_table.horizontalHeader().setStretchLastSection(True)
+            pagos_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            pagos_table.setAlternatingRowColors(True)
+            pagos_table.setMaximumHeight(150)
+            
+            layout.addWidget(pagos_table)
+        
+        # Botón para realizar transacción si hay saldo pendiente
+        if estudiante_data.get('saldo_pendiente', 0) > 0:
+            btn_frame = QFrame()
+            btn_layout = QHBoxLayout(btn_frame)
+            btn_layout.addStretch()
+            
+            btn_realizar_pago = QPushButton("💰 REALIZAR PAGO")
+            btn_realizar_pago.setMinimumHeight(35)
+            btn_realizar_pago.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 0 20px;
+                }
+                QPushButton:hover {
+                    background-color: #219653;
+                }
+            """)
+            
+            btn_layout.addWidget(btn_realizar_pago)
+            layout.addWidget(btn_frame)
+        
+        return frame
+    
+    def crear_grupo_formulario_inscripcion(self):
+        """Crear grupo para el formulario de inscripción/transacción"""
+        grupo = QGroupBox("📋 DETALLES DE LA INSCRIPCIÓN")
+        grupo.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
         
         grid = QGridLayout(grupo)
-        grid.setSpacing(10)
-        grid.setContentsMargins(15, 20, 15, 15)
+        grid.setSpacing(15)
+        grid.setContentsMargins(15, 25, 15, 15)
         
-        # Fila 1: Fecha de Inscripción
-        grid.addWidget(QLabel("Fecha Inscripción:*"), 0, 0)
+        # Fila 1: Fecha y Estudiante
+        grid.addWidget(QLabel("Fecha:"), 0, 0)
         self.fecha_inscripcion_date = QDateEdit()
         self.fecha_inscripcion_date.setCalendarPopup(True)
         self.fecha_inscripcion_date.setDate(QDate.currentDate())
         self.fecha_inscripcion_date.setDisplayFormat("dd/MM/yyyy")
-        self.fecha_inscripcion_date.setMinimumHeight(30)
+        self.fecha_inscripcion_date.setMinimumHeight(35)
         grid.addWidget(self.fecha_inscripcion_date, 0, 1)
         
-        # Fila 2: Estado
-        grid.addWidget(QLabel("Estado:*"), 1, 0)
-        self.estado_combo = QComboBox()
-        self.estado_combo.addItems(["PREINSCRITO", "INSCRITO", "EN_CURSO", "FINALIZADO", "CANCELADO"])
-        self.estado_combo.setMinimumHeight(30)
-        grid.addWidget(self.estado_combo, 1, 1)
+        grid.addWidget(QLabel("Estudiante:"), 0, 2)
+        self.estudiante_nombre_form_label = QLabel()
+        self.estudiante_nombre_form_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        grid.addWidget(self.estudiante_nombre_form_label, 0, 3)
         
-        # Fila 3: Descuento
-        grid.addWidget(QLabel("Descuento (%):"), 2, 0)
+        # Fila 2: Estado, Descuento y Monto
+        grid.addWidget(QLabel("Estado:"), 1, 0)
+        self.estado_inscripcion_combo = QComboBox()
+        self.estado_inscripcion_combo.addItems(["PREINSCRITO", "INSCRITO", "EN_CURSO"])
+        self.estado_inscripcion_combo.setMinimumHeight(35)
+        grid.addWidget(self.estado_inscripcion_combo, 1, 1)
+        
+        grid.addWidget(QLabel("Descuento:"), 1, 2)
+        descuento_layout = QHBoxLayout()
         self.descuento_spin = QDoubleSpinBox()
         self.descuento_spin.setRange(0, 100)
         self.descuento_spin.setDecimals(2)
         self.descuento_spin.setSuffix(" %")
         self.descuento_spin.setValue(0.0)
-        self.descuento_spin.setMinimumHeight(30)
-        grid.addWidget(self.descuento_spin, 2, 1)
+        self.descuento_spin.setMinimumHeight(35)
+        descuento_layout.addWidget(self.descuento_spin)
         
-        # Fila 4: Observaciones
-        grid.addWidget(QLabel("Observaciones:"), 3, 0)
-        self.observaciones_text = QTextEdit()
-        self.observaciones_text.setMaximumHeight(100)
-        self.observaciones_text.setPlaceholderText("Observaciones adicionales sobre la inscripción...")
-        grid.addWidget(self.observaciones_text, 3, 1, 1, 3)
+        grid.addLayout(descuento_layout, 1, 3)
         
-        return grupo
-    
-    def crear_grupo_costos_pagos(self):
-        """Crear grupo para costos y pagos"""
-        grupo = QGroupBox("💰 RESUMEN DE COSTOS Y PAGOS")
+        # Fila 3: Código Transacción
+        grid.addWidget(QLabel("Código Transacción:"), 2, 0)
+        self.codigo_transaccion_label = QLabel("AUTOGENERADO")
+        self.codigo_transaccion_label.setStyleSheet("""
+            font-weight: bold;
+            color: #9b59b6;
+            background-color: #f5eef8;
+            padding: 8px;
+            border-radius: 4px;
+        """)
+        grid.addWidget(self.codigo_transaccion_label, 2, 1)
         
-        layout = QVBoxLayout(grupo)
-        layout.setSpacing(15)
-        layout.setContentsMargins(15, 20, 15, 15)
+        # Fila 4: Fecha de Pago y Forma de Pago
+        grid.addWidget(QLabel("Fecha de Pago:"), 3, 0)
+        self.fecha_pago_date = QDateEdit()
+        self.fecha_pago_date.setCalendarPopup(True)
+        self.fecha_pago_date.setDate(QDate.currentDate())
+        self.fecha_pago_date.setDisplayFormat("dd/MM/yyyy")
+        self.fecha_pago_date.setMinimumHeight(35)
+        grid.addWidget(self.fecha_pago_date, 3, 1)
         
-        # Grid para costos
-        cost_grid = QGridLayout()
-        cost_grid.setSpacing(10)
+        grid.addWidget(QLabel("Forma de Pago:"), 3, 2)
+        from config.constants import FormaPago
+        fp = FormaPago
+        self.forma_pago_combo = QComboBox()
+        self.forma_pago_combo.addItems([fp.EFECTIVO.value, fp.DEPOSITO.value, fp.TARJETA.value, fp.TRANSFERENCIA.value, fp.QR.value])
+        self.forma_pago_combo.setMinimumHeight(35)
+        grid.addWidget(self.forma_pago_combo, 3, 3)
         
-        # Costos del programa
-        cost_grid.addWidget(QLabel("Costo Matrícula:"), 0, 0)
-        self.costo_matricula_label = QLabel("0.00 Bs")
-        self.costo_matricula_label.setStyleSheet("font-weight: bold; color: #27ae60;")
-        cost_grid.addWidget(self.costo_matricula_label, 0, 1)
+        # Fila 5: Estado de Transacción y Origen
+        grid.addWidget(QLabel("Estado Transacción:"), 4, 0)
+        self.estado_transaccion_combo = QComboBox()
+        self.estado_transaccion_combo.addItems(["PENDIENTE", "CONFIRMADO", "ANULADO"])
+        self.estado_transaccion_combo.setMinimumHeight(35)
+        grid.addWidget(self.estado_transaccion_combo, 4, 1)
         
-        cost_grid.addWidget(QLabel("Costo Inscripción:"), 1, 0)
-        self.costo_inscripcion_label = QLabel("0.00 Bs")
-        self.costo_inscripcion_label.setStyleSheet("font-weight: bold; color: #27ae60;")
-        cost_grid.addWidget(self.costo_inscripcion_label, 1, 1)
-        
-        cost_grid.addWidget(QLabel("Costo Total Programa:"), 2, 0)
-        self.costo_total_label = QLabel("0.00 Bs")
-        self.costo_total_label.setStyleSheet("font-weight: bold; color: #e74c3c; font-size: 14px;")
-        cost_grid.addWidget(self.costo_total_label, 2, 1)
-        
-        cost_grid.addWidget(QLabel("Descuento Aplicado:"), 3, 0)
-        self.descuento_aplicado_label = QLabel("0.00 Bs (0%)")
-        self.descuento_aplicado_label.setStyleSheet("font-weight: bold; color: #3498db;")
-        cost_grid.addWidget(self.descuento_aplicado_label, 3, 1)
-        
-        cost_grid.addWidget(QLabel("Costo Final:"), 4, 0)
-        self.costo_final_label = QLabel("0.00 Bs")
-        self.costo_final_label.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 16px; background-color: #ecf0f1; padding: 5px; border-radius: 4px;")
-        cost_grid.addWidget(self.costo_final_label, 4, 1)
-        
-        layout.addLayout(cost_grid)
+        grid.addWidget(QLabel("Origen Transacción:"), 4, 2)
+        self.origen_transaccion_input = QLineEdit()
+        self.origen_transaccion_input.setPlaceholderText("Ej: Banco XYZ, Caja, etc.")
+        self.origen_transaccion_input.setMinimumHeight(35)
+        grid.addWidget(self.origen_transaccion_input, 4, 3)
         
         # Separador
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setStyleSheet("color: #bdc3c7;")
-        layout.addWidget(separator)
+        grid.addWidget(separator, 5, 0, 1, 4)
         
-        # Información de pago inicial
-        payment_layout = QVBoxLayout()
-        
-        payment_title = QLabel("💳 PAGO INICIAL REQUERIDO")
-        payment_title.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
-        payment_layout.addWidget(payment_title)
-        
-        self.pago_inicial_label = QLabel("0.00 Bs (Matrícula + Inscripción)")
-        self.pago_inicial_label.setStyleSheet("font-weight: bold; color: #e74c3c; font-size: 14px; background-color: #f8d7da; padding: 8px; border-radius: 6px; border: 1px solid #f5c6cb;")
-        payment_layout.addWidget(self.pago_inicial_label)
-        
-        layout.addLayout(payment_layout)
-        
-        # En modo edición/lectura, mostrar información de pagos realizados
-        self.pagos_realizados_frame = QFrame()
-        self.pagos_realizados_frame.setVisible(False)
-        self.pagos_realizados_frame.setStyleSheet("""
+        # Sección: Documentos de respaldo
+        documentos_frame = QFrame()
+        documentos_frame.setStyleSheet("""
             QFrame {
-                background-color: #d5f4e6;
-                border: 1px solid #c3e6cb;
+                background-color: #e8f4fc;
                 border-radius: 6px;
                 padding: 10px;
             }
         """)
+        documentos_layout = QVBoxLayout(documentos_frame)
         
-        pagos_layout = QVBoxLayout(self.pagos_realizados_frame)
+        documentos_title = QLabel("📎 DOCUMENTOS DE RESPALDO")
+        documentos_title.setStyleSheet("font-weight: bold; color: #2980b9;")
+        documentos_layout.addWidget(documentos_title)
         
-        pagos_title = QLabel("📊 PAGOS REALIZADOS")
-        pagos_title.setStyleSheet("font-weight: bold; color: #155724;")
-        pagos_layout.addWidget(pagos_title)
-        
-        pagos_grid = QGridLayout()
-        
-        pagos_grid.addWidget(QLabel("Total Pagado:"), 0, 0)
-        self.total_pagado_label = QLabel("0.00 Bs")
-        self.total_pagado_label.setStyleSheet("font-weight: bold; color: #155724;")
-        pagos_grid.addWidget(self.total_pagado_label, 0, 1)
-        
-        pagos_grid.addWidget(QLabel("Saldo Pendiente:"), 1, 0)
-        self.saldo_pendiente_label = QLabel("0.00 Bs")
-        self.saldo_pendiente_label.setStyleSheet("font-weight: bold; color: #721c24;")
-        pagos_grid.addWidget(self.saldo_pendiente_label, 1, 1)
-        
-        pagos_grid.addWidget(QLabel("Porcentaje Pagado:"), 2, 0)
-        self.porcentaje_pagado_label = QLabel("0%")
-        self.porcentaje_pagado_label.setStyleSheet("font-weight: bold; color: #004085;")
-        pagos_grid.addWidget(self.porcentaje_pagado_label, 2, 1)
-        
-        # Barra de progreso
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #bdc3c7;
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #28a745;
-                border-radius: 4px;
-            }
-        """)
-        pagos_grid.addWidget(self.progress_bar, 3, 0, 1, 2)
-        
-        pagos_layout.addLayout(pagos_grid)
-        layout.addWidget(self.pagos_realizados_frame)
-        
-        return grupo
-    
-    def crear_tab_pagos(self):
-        """Crear pestaña para historial de pagos"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
-        
-        # Botón para registrar nuevo pago
-        self.btn_nuevo_pago = QPushButton("➕ Registrar Nuevo Pago")
-        self.btn_nuevo_pago.setStyleSheet("""
+        # Botón para agregar documento
+        self.btn_agregar_documento = QPushButton("➕ AGREGAR DOCUMENTO")
+        self.btn_agregar_documento.setMinimumHeight(35)
+        self.btn_agregar_documento.setStyleSheet("""
             QPushButton {
-                background-color: #28a745;
+                background-color: #3498db;
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #218838;
+                background-color: #2980b9;
             }
         """)
-        layout.addWidget(self.btn_nuevo_pago)
-        
-        # Tabla de pagos
-        self.pagos_table = QTableWidget()
-        self.pagos_table.setColumnCount(7)
-        self.pagos_table.setHorizontalHeaderLabels(["ID", "Fecha", "Forma Pago", "Monto", "Comprobante", "Estado", "Observaciones"])
-        self.pagos_table.horizontalHeader().setStretchLastSection(True)
-        self.pagos_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.pagos_table.setAlternatingRowColors(True)
-        self.pagos_table.setSortingEnabled(True)
-        
-        layout.addWidget(self.pagos_table, 1)
-        
-        return tab
-    
-    def crear_tab_documentos(self):
-        """Crear pestaña para documentos adjuntos"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
-        
-        # Botón para subir documentos
-        self.btn_subir_documento = QPushButton("📤 Subir Documento")
-        self.btn_subir_documento.setStyleSheet("""
-            QPushButton {
-                background-color: #17a2b8;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 10px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #138496;
-            }
-        """)
-        layout.addWidget(self.btn_subir_documento)
+        documentos_layout.addWidget(self.btn_agregar_documento)
         
         # Lista de documentos
-        self.documentos_list = QListWidget()
-        self.documentos_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #dee2e6;
+        self.documentos_list_widget = QListWidget()
+        self.documentos_list_widget.setMaximumHeight(100)
+        documentos_layout.addWidget(self.documentos_list_widget)
+        
+        grid.addWidget(documentos_frame, 6, 0, 1, 4)
+        
+        # Separador
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.HLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        grid.addWidget(separator2, 7, 0, 1, 4)
+        
+        # Sección: Detalles de transacción
+        detalles_frame = QFrame()
+        detalles_layout = QVBoxLayout(detalles_frame)
+        
+        detalles_title = QLabel("💰 DETALLES DE LA TRANSACCIÓN")
+        detalles_title.setStyleSheet("font-weight: bold; color: #27ae60;")
+        detalles_layout.addWidget(detalles_title)
+        
+        # Tabla de detalles
+        self.detalles_table = QTableWidget()
+        self.detalles_table.setColumnCount(5)
+        self.detalles_table.setHorizontalHeaderLabels(["Concepto", "Descripción", "Cantidad", "Precio Unit.", "Subtotal"])
+        self.detalles_table.horizontalHeader().setStretchLastSection(True)
+        self.detalles_table.setMinimumHeight(150)
+        self.detalles_table.setMaximumHeight(200)
+        
+        # Agregar fila vacía inicial
+        self.detalles_table.setRowCount(1)
+        
+        detalles_layout.addWidget(self.detalles_table)
+        
+        # Botón para agregar detalle
+        btn_agregar_detalle = QPushButton("➕ AGREGAR CONCEPTO")
+        btn_agregar_detalle.setMinimumHeight(35)
+        btn_agregar_detalle.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
                 border-radius: 6px;
+                font-weight: bold;
             }
-            QListWidget::item {
-                padding: 10px;
-                border-bottom: 1px solid #dee2e6;
-            }
-            QListWidget::item:selected {
-                background-color: #e3f2fd;
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
+        detalles_layout.addWidget(btn_agregar_detalle)
         
-        layout.addWidget(self.documentos_list, 1)
+        grid.addWidget(detalles_frame, 8, 0, 1, 4)
         
-        # Botones para documentos
-        btn_doc_layout = QHBoxLayout()
+        # Fila: Total
+        total_frame = QFrame()
+        total_layout = QHBoxLayout(total_frame)
+        total_layout.addStretch()
         
-        self.btn_ver_documento = QPushButton("👁️ Ver")
-        self.btn_descargar_documento = QPushButton("⬇️ Descargar")
-        self.btn_eliminar_documento = QPushButton("🗑️ Eliminar")
+        total_label = QLabel("TOTAL:")
+        total_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #2c3e50;")
+        total_layout.addWidget(total_label)
         
-        for btn in [self.btn_ver_documento, self.btn_descargar_documento, self.btn_eliminar_documento]:
-            btn.setEnabled(False)
-            btn.setMinimumHeight(35)
-            btn_doc_layout.addWidget(btn)
+        self.total_label = QLabel("0.00 Bs")
+        self.total_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 18px;
+            color: #e74c3c;
+            background-color: #f9ebea;
+            padding: 10px 20px;
+            border-radius: 6px;
+            min-width: 150px;
+            text-align: center;
+        """)
+        total_layout.addWidget(self.total_label)
         
-        layout.addLayout(btn_doc_layout)
+        grid.addWidget(total_frame, 9, 0, 1, 4)
         
-        return tab
+        return grupo
     
     def setup_validators(self):
         """Configurar validadores"""
@@ -724,224 +1009,105 @@ class InscripcionOverlay(BaseOverlay):
     def setup_conexiones_especificas(self):
         """Configurar conexiones específicas"""
         # Botones de búsqueda
-        self.btn_buscar_estudiante.clicked.connect(self.buscar_estudiante)
-        self.btn_buscar_programa.clicked.connect(self.buscar_programa)
+        self.btn_buscar_estudiante.clicked.connect(self.buscar_estudiantes_disponibles)
+        self.btn_buscar_programa.clicked.connect(self.buscar_programas_disponibles)
         
-        # Botones de cambio
-        self.btn_cambiar_estudiante.clicked.connect(self.cambiar_estudiante)
-        self.btn_cambiar_programa.clicked.connect(self.cambiar_programa)
+        # Botones de acción
+        self.btn_realizar_inscripcion.clicked.connect(self.realizar_inscripcion)
+        self.btn_cancelar_inscripcion.clicked.connect(self.cancelar_inscripcion)
+        self.btn_agregar_documento.clicked.connect(self.agregar_documento)
         
-        # Tablas de selección
-        self.estudiante_results_table.itemDoubleClicked.connect(self.seleccionar_estudiante)
-        self.programa_results_table.itemDoubleClicked.connect(self.seleccionar_programa)
+        # Conexiones de tablas
+        self.estudiantes_disponibles_table.itemDoubleClicked.connect(self.seleccionar_estudiante_desde_tabla)
+        self.programas_disponibles_table.itemDoubleClicked.connect(self.seleccionar_programa_desde_tabla)
         
         # Cambios en formulario
-        self.descuento_spin.valueChanged.connect(self.calcular_costos)
-        
-        # Botones de pestañas (solo en modo edición)
-        self.btn_nuevo_pago.clicked.connect(self.registrar_nuevo_pago)
-        self.btn_subir_documento.clicked.connect(self.subir_documento)
-        
-        # Documentos
-        self.documentos_list.itemSelectionChanged.connect(self.habilitar_botones_documentos)
-        self.btn_ver_documento.clicked.connect(self.ver_documento)
-        self.btn_descargar_documento.clicked.connect(self.descargar_documento)
-        self.btn_eliminar_documento.clicked.connect(self.eliminar_documento)
+        self.descuento_spin.valueChanged.connect(self.calcular_total)
         
         # **AGREGAR SI NO ESTÁ EN BaseOverlay:**
         if hasattr(self, 'btn_guardar'):
             self.btn_guardar.clicked.connect(self.guardar_datos)
     
-    # ===== MÉTODOS DE BÚSQUEDA =====
+    def configurar_interfaz_segun_contexto(self):
+        """Configurar qué elementos mostrar según el contexto (estudiante_id o programa_id)"""
+        # Limpiar listados anteriores
+        self.limpiar_listados()
+        
+        logger.debug(f"Configurando interfaz con estudiante_id={self.estudiante_id} y programa_id={self.programa_id}")
+        
+        if self.estudiante_id and not self.programa_id:
+            # Caso 1: Tenemos estudiante_id pero no programa_id
+            self.grupo_info_estudiante.setVisible(True)
+            self.grupo_buscar_estudiante.setVisible(False)
+            self.grupo_info_programa.setVisible(False)
+            self.grupo_programas_disponibles.setVisible(True)
+            self.grupo_buscar_programa.setVisible(True)
+            self.seccion_listado_frame.setVisible(True)
+            self.seccion_formulario_frame.setVisible(False)
+            
+            # Configurar título
+            self.titulo_listado_label.setText("🎓 PROGRAMAS INSCRITOS DEL ESTUDIANTE")
+            
+            # Cargar información del estudiante
+            self.cargar_info_estudiante(self.estudiante_id)
+            
+            # Cargar programas inscritos del estudiante
+            self.cargar_programas_inscritos_estudiante()
+            
+            # Cargar programas disponibles para el estudiante
+            self.cargar_programas_disponibles_para_estudiante()
+            
+        elif self.programa_id and not self.estudiante_id:
+            # Caso 2: Tenemos programa_id pero no estudiante_id
+            self.grupo_info_estudiante.setVisible(False)
+            self.grupo_buscar_estudiante.setVisible(True)
+            self.grupo_info_programa.setVisible(True)
+            self.grupo_programas_disponibles.setVisible(False)
+            self.grupo_buscar_programa.setVisible(False)
+            self.seccion_listado_frame.setVisible(True)
+            self.seccion_formulario_frame.setVisible(False)
+            
+            # Configurar título
+            self.titulo_listado_label.setText("👥 ESTUDIANTES INSCRITOS EN EL PROGRAMA")
+            
+            # Cargar información del programa
+            self.cargar_info_programa(self.programa_id)
+            
+            # Cargar estudiantes inscritos en el programa
+            self.cargar_estudiantes_inscritos_programa()
+            
+        elif self.estudiante_id and self.programa_id:
+            # Caso 3: Tenemos ambos IDs (modo inscripción)
+            self.grupo_info_estudiante.setVisible(True)
+            self.grupo_buscar_estudiante.setVisible(False)
+            self.grupo_info_programa.setVisible(True)
+            self.grupo_programas_disponibles.setVisible(False)
+            self.grupo_buscar_programa.setVisible(False)
+            self.seccion_listado_frame.setVisible(False)
+            self.seccion_formulario_frame.setVisible(True)
+            
+            # Cargar información de ambos
+            self.cargar_info_estudiante(self.estudiante_id)
+            self.cargar_info_programa(self.programa_id)
+            
+            # Configurar formulario
+            self.configurar_formulario_inscripcion()
+            
+        else:
+            # Caso 4: No tenemos ni estudiante_id ni programa_id
+            self.grupo_info_estudiante.setVisible(False)
+            self.grupo_buscar_estudiante.setVisible(False)
+            self.grupo_info_programa.setVisible(False)
+            self.grupo_programas_disponibles.setVisible(False)
+            self.grupo_buscar_programa.setVisible(False)
+            self.seccion_listado_frame.setVisible(False)
+            self.seccion_formulario_frame.setVisible(False)
     
-    def buscar_estudiante(self):
-        """Buscar estudiante en la base de datos"""
-        search_term = self.estudiante_search_input.text().strip()
-        
-        if not search_term:
-            self.mostrar_mensaje("Advertencia", "Por favor ingrese un término de búsqueda", "warning")
-            return
-        
+    def cargar_info_estudiante(self, estudiante_id: int):
+        """Cargar información del estudiante en el panel izquierdo"""
         try:
-            # Limpiar resultados anteriores
-            self.estudiante_results_table.setRowCount(0)
-            self.estudiante_status_label.setText("🔍 Buscando estudiantes...")
-            self.estudiante_status_label.setStyleSheet("color: #f39c12;")
-            
-            # Determinar tipo de búsqueda
-            if search_term.isdigit() or '-' in search_term:
-                # Búsqueda por CI
-                if '-' in search_term:
-                    partes = search_term.split('-')
-                    ci_numero = partes[0].strip()
-                    ci_expedicion = partes[1].strip() if len(partes) > 1 else None
-                else:
-                    ci_numero = search_term
-                    ci_expedicion = None
-                
-                estudiantes = EstudianteModel.buscar_estudiantes(
-                    ci_numero=ci_numero,
-                    ci_expedicion=ci_expedicion,
-                    nombre=None,
-                    limit=10,
-                    offset=0
-                )
-            else:
-                # Búsqueda por nombre
-                estudiantes = EstudianteModel.buscar_estudiantes(
-                    ci_numero=None,
-                    ci_expedicion=None,
-                    nombre=search_term,
-                    limit=10,
-                    offset=0
-                )
-            
-            if estudiantes:
-                self.estudiante_results_table.setRowCount(len(estudiantes))
-                
-                for i, estudiante in enumerate(estudiantes):
-                    # CI completo
-                    ci_completo = f"{estudiante.get('ci_numero', '')}-{estudiante.get('ci_expedicion', '')}"
-                    ci_item = QTableWidgetItem(ci_completo)
-                    self.estudiante_results_table.setItem(i, 0, ci_item)
-                    
-                    # Nombre completo
-                    nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')} {estudiante.get('apellido_materno', '')}".strip()
-                    self.estudiante_results_table.setItem(i, 1, QTableWidgetItem(nombre_completo))
-                    
-                    # Email
-                    self.estudiante_results_table.setItem(i, 2, QTableWidgetItem(estudiante.get('email', '')))
-                    
-                    # Teléfono
-                    self.estudiante_results_table.setItem(i, 3, QTableWidgetItem(estudiante.get('telefono', '')))
-                    
-                    # Guardar ID como dato oculto
-                    if ci_item:
-                        ci_item.setData(Qt.ItemDataRole.UserRole, estudiante.get('id'))
-                
-                self.estudiante_results_frame.setVisible(True)
-                self.estudiante_status_label.setText(f"✅ Encontrados {len(estudiantes)} estudiantes")
-                self.estudiante_status_label.setStyleSheet("color: #27ae60;")
-                
-            else:
-                self.estudiante_results_frame.setVisible(False)
-                self.estudiante_status_label.setText("❌ No se encontraron estudiantes con ese criterio")
-                self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
-                
-        except Exception as e:
-            logger.error(f"Error buscando estudiante: {e}")
-            self.estudiante_status_label.setText(f"❌ Error en la búsqueda: {str(e)}")
-            self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
-    
-    def buscar_programa(self):
-        """Buscar programa en la base de datos"""
-        search_term = self.programa_search_input.text().strip()
-        
-        if not search_term:
-            self.mostrar_mensaje("Advertencia", "Por favor ingrese un término de búsqueda", "warning")
-            return
-        
-        try:
-            # Limpiar resultados anteriores
-            self.programa_results_table.setRowCount(0)
-            self.programa_status_label.setText("🔍 Buscando programas...")
-            self.programa_status_label.setStyleSheet("color: #f39c12;")
-            
-            # Buscar programas (usar búsqueda por código o nombre)
-            programas = ProgramaModel.buscar_programas(
-                codigo=search_term if '-' in search_term else None,
-                nombre=search_term if '-' not in search_term else None,
-                estado=None,  # Buscar todos los estados
-                limit=10,
-                offset=0
-            )
-            
-            if programas:
-                self.programa_results_table.setRowCount(len(programas))
-                
-                for i, programa in enumerate(programas):
-                    id_item = QTableWidgetItem(str(programa.get('id', '')))
-                    self.programa_results_table.setItem(i, 0, id_item)
-                    
-                    # Código
-                    codigo_item = QTableWidgetItem(programa.get('codigo', ''))
-                    self.programa_results_table.setItem(i, 0, codigo_item)
-                    
-                    # Nombre
-                    self.programa_results_table.setItem(i, 1, QTableWidgetItem(programa.get('nombre', '')))
-                    
-                    # Estado
-                    estado = programa.get('estado', '')
-                    estado_item = QTableWidgetItem(estado)
-                    self.programa_results_table.setItem(i, 2, estado_item)
-                    
-                    from config.constants import EstadoPrograma
-                    
-                    # Color según estado
-                    if estado_item:
-                        if estado == EstadoPrograma.INSCRIPCIONES or estado == EstadoPrograma.EN_CURSO:
-                            estado_item.setForeground(QBrush(QColor("#27ae60")))
-                        elif estado == EstadoPrograma.PLANIFICADO:
-                            estado_item.setForeground(QBrush(QColor("#f39c12")))
-                        elif estado == EstadoPrograma.CANCELADO or estado == EstadoPrograma.CONCLUIDO:
-                            estado_item.setForeground(QBrush(QColor("#95a5a6")))
-                    
-                    # Cupos
-                    cupos_inscritos = programa.get('cupos_inscritos', 0)
-                    cupos_maximos = programa.get('cupos_maximos', 0)
-                    cupos_text = f"{cupos_inscritos}/{cupos_maximos}"
-                    self.programa_results_table.setItem(i, 3, QTableWidgetItem(cupos_text))
-                    
-                    # Costo total
-                    costo_total = programa.get('costo_total', 0)
-                    self.programa_results_table.setItem(i, 4, QTableWidgetItem(f"{costo_total:.2f} Bs"))
-                    
-                    # Guardar ID como dato oculto
-                    if codigo_item:
-                        codigo_item.setData(Qt.ItemDataRole.UserRole, programa.get('id'))
-                
-                self.programa_results_frame.setVisible(True)
-                self.programa_status_label.setText(f"✅ Encontrados {len(programas)} programas")
-                self.programa_status_label.setStyleSheet("color: #27ae60;")
-                
-            else:
-                self.programa_results_frame.setVisible(False)
-                self.programa_status_label.setText("❌ No se encontraron programas con ese criterio")
-                self.programa_status_label.setStyleSheet("color: #e74c3c;")
-                
-        except Exception as e:
-            logger.error(f"Error buscando programa: {e}")
-            self.programa_status_label.setText(f"❌ Error en la búsqueda: {str(e)}")
-            self.programa_status_label.setStyleSheet("color: #e74c3c;")
-    
-    # ===== MÉTODOS DE SELECCIÓN =====
-    
-    def seleccionar_estudiante(self, item):
-        """Seleccionar estudiante de la tabla de resultados"""
-        row = item.row()
-        estudiante_id_item = self.estudiante_results_table.item(row, 0)
-        if estudiante_id_item:
-            estudiante_id = estudiante_id_item.data(Qt.ItemDataRole.UserRole)
-            if estudiante_id:
-                self.cargar_estudiante(estudiante_id)
-    
-    def seleccionar_programa(self, item):
-        """Seleccionar programa de la tabla de resultados"""
-        row = item.row()
-        programa_id_item = self.programa_results_table.item(row, 0)
-        if programa_id_item:
-            programa_id = programa_id_item.data(Qt.ItemDataRole.UserRole)
-            if programa_id:
-                self.cargar_programa(programa_id)
-    
-    def cargar_estudiante(self, estudiante_id: int):
-        """Cargar información del estudiante seleccionado"""
-        try:
-            # Obtener datos completos del estudiante
             estudiante = EstudianteModel.buscar_estudiante_id(estudiante_id)
-            
             if estudiante:
-                self.estudiante_id = estudiante_id
                 self.estudiante_data = estudiante
                 
                 # Actualizar interfaz
@@ -950,39 +1116,23 @@ class InscripcionOverlay(BaseOverlay):
                 
                 nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')} {estudiante.get('apellido_materno', '')}".strip()
                 self.estudiante_nombre_label.setText(nombre_completo)
+                self.estudiante_nombre_form_label.setText(nombre_completo)
                 
                 self.estudiante_email_label.setText(estudiante.get('email', 'No registrado'))
                 self.estudiante_telefono_label.setText(estudiante.get('telefono', 'No registrado'))
                 self.estudiante_profesion_label.setText(estudiante.get('profesion', 'No registrado'))
                 self.estudiante_universidad_label.setText(estudiante.get('universidad', 'No registrado'))
-                
-                # Ocultar búsqueda y mostrar información
-                self.estudiante_results_frame.setVisible(False)
-                self.grupo_info_estudiante.setVisible(True)
-                self.estudiante_encontrado = True
-                self.estudiante_status_label.setText(f"✅ Estudiante seleccionado: {nombre_completo}")
-                self.estudiante_status_label.setStyleSheet("color: #27ae60;")
-                
-                # Si ya tenemos programa, mostrar detalles de inscripción
-                if self.programa_encontrado:
-                    self.mostrar_detalles_inscripcion()
-                    
-            else:
-                self.mostrar_mensaje("Error", "No se pudo cargar la información del estudiante", "error")
+                self.estudiante_direccion_label.setText(estudiante.get('direccion', 'No registrada'))
                 
         except Exception as e:
-            logger.error(f"Error cargando estudiante: {e}")
-            self.mostrar_mensaje("Error", f"No se pudo cargar el estudiante: {str(e)}", "error")
+            logger.error(f"Error cargando información del estudiante: {e}")
     
-    def cargar_programa(self, programa_id: int):
-        """Cargar información del programa seleccionado"""
+    def cargar_info_programa(self, programa_id: int):
+        """Cargar información del programa en el panel derecho"""
         try:
-            # Obtener datos del programa
             resultado = ProgramaModel.obtener_programa(programa_id)
-            
             if resultado.get('success') and resultado.get('data'):
                 programa = resultado['data']
-                self.programa_id = programa_id
                 self.programa_data = programa
                 
                 # Actualizar interfaz
@@ -999,9 +1149,8 @@ class InscripcionOverlay(BaseOverlay):
                 estado = programa.get('estado', '')
                 self.programa_estado_label.setText(estado)
                 
-                from config.constants import EstadoPrograma
-                
                 # Color según estado
+                from config.constants import EstadoPrograma
                 if estado == EstadoPrograma.EN_CURSO:
                     self.programa_estado_label.setStyleSheet("color: #27ae60; font-weight: bold;")
                 elif estado == EstadoPrograma.INSCRIPCIONES:
@@ -1013,29 +1162,10 @@ class InscripcionOverlay(BaseOverlay):
                 else:
                     self.programa_estado_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
                 
-                # **CORRECCIÓN: Manejar fechas correctamente**
-                fecha_inicio = programa.get('fecha_inicio', '')
-                fecha_fin = programa.get('fecha_fin', '')
-                
-                # Convertir datetime.date a string
-                if fecha_inicio:
-                    if hasattr(fecha_inicio, 'strftime'):
-                        fecha_inicio_str = fecha_inicio.strftime("%Y-%m-%d")
-                    else:
-                        fecha_inicio_str = str(fecha_inicio)[:10]
-                else:
-                    fecha_inicio_str = 'No definida'
-                
-                if fecha_fin:
-                    if hasattr(fecha_fin, 'strftime'):
-                        fecha_fin_str = fecha_fin.strftime("%Y-%m-%d")
-                    else:
-                        fecha_fin_str = str(fecha_fin)[:10]
-                else:
-                    fecha_fin_str = 'No definida'
-                    
-                self.programa_fecha_inicio_label.setText(fecha_inicio_str)
-                self.programa_fecha_fin_label.setText(fecha_fin_str)
+                # Costos
+                self.programa_matricula_label.setText(f"{programa.get('costo_matricula', 0):.2f} Bs")
+                self.programa_costo_inscripcion_label.setText(f"{programa.get('costo_inscripcion', 0):.2f} Bs")
+                self.programa_total_label.setText(f"{programa.get('costo_total', 0):.2f} Bs")
                 
                 # Docente
                 docente_id = programa.get('docente_coordinador_id')
@@ -1049,398 +1179,1006 @@ class InscripcionOverlay(BaseOverlay):
                 
                 self.programa_docente_label.setText(docente_nombre)
                 
-                # **CORRECCIÓN: Primero mostrar la información del programa**
-                self.programa_results_frame.setVisible(False)
-                self.grupo_info_programa.setVisible(True)
+                # IMPLEMENTACIÓN DEL TODO: Cargar resumen de inscritos y recaudado
+                self.calcular_resumen_programa(programa_id)
                 
-                # **CORRECCIÓN: Establecer programa_encontrado como True aquí**
-                # El programa SÍ está encontrado y cargado, independientemente de la disponibilidad
-                self.programa_encontrado = True
-                
-                self.programa_status_label.setText(f"✅ Programa seleccionado: {programa.get('codigo')}")
-                self.programa_status_label.setStyleSheet("color: #27ae60;")
-                
-                # **VERIFICAR DISPONIBILIDAD (esto determinará si se puede crear la inscripción)**
-                disponible = self.verificar_disponibilidad(programa_id)
-                
-                # **CORRECCIÓN: Establecer una variable separada para disponibilidad**
-                self.programa_disponible = disponible
-                
-                # Actualizar costos
-                self.actualizar_costos_programa()
-                
-                # Si ya tenemos estudiante, verificar si podemos mostrar detalles
-                if self.estudiante_encontrado:
-                    if disponible:
-                        self.mostrar_detalles_inscripcion()
-                    else:
-                        # Programa encontrado pero no disponible
-                        self.mostrar_mensaje(
-                            "Programa no disponible",
-                            "El programa seleccionado no está disponible para inscripción.\n"
-                            "Verifique el estado y disponibilidad de cupos.",
-                            "warning"
-                        )
-                
-            else:
-                mensaje = resultado.get('message', 'Error desconocido')
-                self.mostrar_mensaje("Error", f"No se pudo cargar el programa: {mensaje}", "error")
-                self.programa_encontrado = False
-            
         except Exception as e:
-            logger.error(f"Error cargando programa: {e}")
-            self.mostrar_mensaje("Error", f"No se pudo cargar el programa: {str(e)}", "error")
-            self.programa_encontrado = False
+            logger.error(f"Error cargando información del programa: {e}")
+            self.mostrar_mensaje("Error", f"Error al cargar información del programa: {str(e)}", "error")
     
-    def verificar_disponibilidad(self, programa_id: int):
-        """Verificar disponibilidad de cupos en el programa"""
+    def calcular_resumen_programa(self, programa_id: int):
+        """Calcular resumen de inscritos y recaudado del programa"""
         try:
-            disponibilidad = InscripcionModel.verificar_disponibilidad_programa(programa_id)
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                self.programa_inscritos_label.setText("Error conexión")
+                self.programa_recaudado_label.setText("Error conexión")
+                return
             
-            if disponibilidad.get('success'):
-                self.disponibilidad_data = disponibilidad['data']
-                self.disponibilidad_verificada = disponibilidad['data']['disponible']
-                
-                # **CORRECCIÓN: Usar 'cupos_disponibles' en lugar de 'cupos_restantes'**
-                cupos_disponibles = disponibilidad['data']['cupos_disponibles']
-                
-                # Mostrar mensaje apropiado
-                if self.disponibilidad_verificada:
-                    # Disponible
-                    self.programa_status_label.setText(f"✅ {disponibilidad['data']['mensaje']}")
-                    self.programa_status_label.setStyleSheet("color: #27ae60;")
-                    
-                    # Mostrar cupos disponibles
-                    if cupos_disponibles == 9999:
-                        mensaje_cupos = "Cupos ilimitados"
-                    else:
-                        mensaje_cupos = f"Cupos disponibles: {cupos_disponibles}"
-                    
-                    # Actualizar etiqueta de cupos con color
-                    cupos_item = QTableWidgetItem(mensaje_cupos)
-                    if cupos_disponibles == 9999:
-                        cupos_item.setForeground(Qt.GlobalColor.green)
-                    elif cupos_disponibles > 5:
-                        cupos_item.setForeground(Qt.GlobalColor.darkGreen)
-                    elif cupos_disponibles > 0:
-                        cupos_item.setForeground(Qt.GlobalColor.darkYellow)
-                    else:
-                        cupos_item.setForeground(Qt.GlobalColor.red)
-                        
-                    # Buscar la fila del programa en la tabla y actualizar cupos
-                    for row in range(self.programa_results_table.rowCount()):
-                        id_item = self.programa_results_table.item(row, 0)
-                        if id_item and id_item.data(Qt.ItemDataRole.UserRole) == programa_id:
-                            self.programa_results_table.setItem(row, 4, cupos_item)
-                            break
-                        
-                    return True
-                else:
-                    # No disponible
-                    self.programa_status_label.setText(f"❌ {disponibilidad['data']['mensaje']}")
-                    self.programa_status_label.setStyleSheet("color: #e74c3c;")
-                    return False
+            cursor = connection.cursor()
+            
+            # 1. Contar estudiantes inscritos (excluyendo RETIRADOS)
+            query_inscritos = """
+            SELECT COUNT(*) as total_inscritos
+            FROM inscripciones 
+            WHERE programa_id = %s 
+            AND estado NOT IN ('RETIRADO')
+            """
+            cursor.execute(query_inscritos, (programa_id,))
+            result_inscritos = cursor.fetchone()
+            total_inscritos = result_inscritos[0] if result_inscritos else 0
+            
+            # 2. Calcular total recaudado de transacciones CONFIRMADAS
+            query_recaudado = """
+            SELECT COALESCE(SUM(t.monto_final), 0) as total_recaudado
+            FROM transacciones t
+            WHERE t.programa_id = %s 
+            AND t.estado = 'CONFIRMADO'
+            """
+            cursor.execute(query_recaudado, (programa_id,))
+            result_recaudado = cursor.fetchone()
+            total_recaudado = float(result_recaudado[0]) if result_recaudado else 0.0
+            
+            # 3. Calcular promedio de pago por estudiante
+            if total_inscritos > 0:
+                promedio_pago = total_recaudado / total_inscritos
             else:
-                self.disponibilidad_verificada = False
-                self.programa_status_label.setText("❌ No se pudo verificar disponibilidad")
-                self.programa_status_label.setStyleSheet("color: #e74c3c;")
-                return False
+                promedio_pago = 0.0
+            
+            # 4. Obtener estudiantes con saldo pendiente
+            query_pendientes = """
+            SELECT COUNT(DISTINCT i.estudiante_id) as estudiantes_con_saldo
+            FROM inscripciones i
+            LEFT JOIN (
+                SELECT estudiante_id, programa_id, SUM(monto_final) as total_pagado
+                FROM transacciones 
+                WHERE programa_id = %s AND estado = 'CONFIRMADO'
+                GROUP BY estudiante_id, programa_id
+            ) t ON i.estudiante_id = t.estudiante_id AND i.programa_id = t.programa_id
+            WHERE i.programa_id = %s 
+            AND i.estado NOT IN ('RETIRADO')
+            AND (
+                t.total_pagado IS NULL 
+                OR t.total_pagado < (
+                    -- Calcular costo total considerando descuentos
+                    SELECT (p.costo_matricula + p.costo_inscripcion + (p.costo_mensualidad * p.numero_cuotas)) * 
+                            (1 - COALESCE(i.descuento_aplicado, 0) / 100)
+                    FROM programas p
+                    WHERE p.id = i.programa_id
+                )
+            )
+            """
+            cursor.execute(query_pendientes, (programa_id, programa_id))
+            result_pendientes = cursor.fetchone()
+            estudiantes_con_saldo = result_pendientes[0] if result_pendientes else 0
+            
+            # 5. Calcular proyección de ingresos totales
+            query_proyeccion = """
+            SELECT COALESCE(SUM(
+                (p.costo_matricula + p.costo_inscripcion + (p.costo_mensualidad * p.numero_cuotas)) * 
+                (1 - COALESCE(i.descuento_aplicado, 0) / 100)
+            ), 0) as proyeccion_total
+            FROM inscripciones i
+            JOIN programas p ON i.programa_id = p.id
+            WHERE i.programa_id = %s 
+            AND i.estado NOT IN ('RETIRADO')
+            """
+            cursor.execute(query_proyeccion, (programa_id,))
+            result_proyeccion = cursor.fetchone()
+            proyeccion_total = float(result_proyeccion[0]) if result_proyeccion else 0.0
+            
+            cursor.close()
+            Database.return_connection(connection)
+            
+            # Actualizar interfaz con los datos calculados
+            self.programa_inscritos_label.setText(f"{total_inscritos} estudiantes")
+            
+            # Mostrar recaudado con formato especial si hay datos
+            if total_recaudado > 0:
+                # Calcular porcentaje de recaudado vs proyección
+                if proyeccion_total > 0:
+                    porcentaje_recaudado = (total_recaudado / proyeccion_total) * 100
+                    self.programa_recaudado_label.setText(
+                        f"{total_recaudado:,.2f} Bs\n"
+                        f"({porcentaje_recaudado:.1f}% de proyección)"
+                    )
+                    # Color según porcentaje
+                    if porcentaje_recaudado >= 80:
+                        self.programa_recaudado_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+                    elif porcentaje_recaudado >= 50:
+                        self.programa_recaudado_label.setStyleSheet("color: #f39c12; font-weight: bold;")
+                    else:
+                        self.programa_recaudado_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+                else:
+                    self.programa_recaudado_label.setText(f"{total_recaudado:,.2f} Bs")
+                    self.programa_recaudado_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+                
+                # Agregar tooltip con información detallada
+                tooltip_text = (
+                    f"💰 <b>Resumen Financiero del Programa</b><br><br>"
+                    f"<b>Total Recaudado:</b> {total_recaudado:,.2f} Bs<br>"
+                    f"<b>Proyección Total:</b> {proyeccion_total:,.2f} Bs<br>"
+                    f"<b>Promedio por Estudiante:</b> {promedio_pago:,.2f} Bs<br>"
+                    f"<b>Estudiantes con Saldo:</b> {estudiantes_con_saldo}<br>"
+                    f"<b>Saldo por Recaudar:</b> {proyeccion_total - total_recaudado:,.2f} Bs"
+                )
+                self.programa_recaudado_label.setToolTip(tooltip_text)
+                
+                # También agregar tooltip al label de inscritos
+                inscritos_tooltip = (
+                    f"👥 <b>Resumen de Inscritos</b><br><br>"
+                    f"<b>Total Inscritos:</b> {total_inscritos}<br>"
+                    f"<b>Cupos Disponibles:</b> {cupos_maximos - total_inscritos if cupos_maximos else '∞'}<br>"
+                    f"<b>Porcentaje Ocupación:</b> {(total_inscritos/cupos_maximos*100):.1f}%<br>"
+                    f"<b>Estudiantes con Saldo Pendiente:</b> {estudiantes_con_saldo}"
+                )
+                self.programa_inscritos_label.setToolTip(inscritos_tooltip)
+            else:
+                self.programa_recaudado_label.setText("0.00 Bs")
+                self.programa_recaudado_label.setStyleSheet("color: #95a5a6; font-weight: bold;")
+                self.programa_recaudado_label.setToolTip("No hay transacciones registradas para este programa")
+            
+        except Exception as e:
+            logger.error(f"Error calculando resumen del programa: {e}")
+            self.programa_inscritos_label.setText("Error cálculo")
+            self.programa_recaudado_label.setText("Error cálculo")
+            self.programa_inscritos_label.setToolTip(f"Error al calcular: {str(e)}")
+            self.programa_recaudado_label.setToolTip(f"Error al calcular: {str(e)}")
+    
+    def cargar_programas_inscritos_estudiante(self):
+        """Cargar los programas en los que el estudiante está inscrito"""
+        try:
+            # Limpiar listado anterior
+            while self.listado_layout_container.count():
+                child = self.listado_layout_container.takeAt(0)
+                widget = child.widget()
+                if widget:
+                    widget.deleteLater()
+            
+            # Obtener programas inscritos del estudiante desde la base de datos
+            from model.inscripcion_model import InscripcionModel
+            if not self.estudiante_id:
+                return
+            
+            programas = InscripcionModel.obtener_programas_inscritos_estudiante(self.estudiante_id)
+            
+            if not programas:
+                # Mostrar mensaje si no hay programas
+                no_data_label = QLabel("🎯 El estudiante no está inscrito en ningún programa")
+                no_data_label.setStyleSheet("""
+                    color: #7f8c8d;
+                    font-style: italic;
+                    font-size: 14px;
+                    padding: 20px;
+                    text-align: center;
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                    margin: 10px;
+                """)
+                self.listado_layout_container.addWidget(no_data_label)
+            else:
+                # Procesar cada programa inscrito
+                for programa_data in programas:
+                    try:
+                        # Enriquecer datos con información de transacciones y cálculos
+                        programa_enriquecido = self.enriquecer_datos_programa_inscrito(programa_data)
+                        
+                        # Crear widget para mostrar el programa
+                        item_widget = self.crear_item_programa_inscrito(programa_enriquecido)
+                        self.listado_layout_container.addWidget(item_widget)
+                        
+                    except Exception as e:
+                        logger.error(f"Error procesando programa {programa_data.get('codigo', 'desconocido')}: {e}")
+                        # Mostrar un item de error para este programa
+                        error_widget = self.crear_item_error_programa(programa_data, str(e))
+                        self.listado_layout_container.addWidget(error_widget)
+            
+            self.listado_layout_container.addStretch()
+            
+        except Exception as e:
+            logger.error(f"Error cargando programas inscritos: {e}")
+            self.mostrar_mensaje("Error", f"Error al cargar programas inscritos: {str(e)}", "error")
+    
+    def enriquecer_datos_programa_inscrito(self, programa_data: Dict) -> Dict:
+        """Enriquecer datos del programa inscrito con información financiera"""
+        try:
+            inscripcion_id = programa_data.get('inscripcion_id')
+            estudiante_id = self.estudiante_id
+            programa_id = programa_data.get('programa_id')
+            
+            if not all([inscripcion_id, estudiante_id, programa_id]):
+                return programa_data
+            
+            # 1. Obtener transacciones relacionadas a esta inscripción
+            if not inscripcion_id:
+                return programa_data
+            transacciones = TransaccionModel.obtener_transacciones_inscripcion(inscripcion_id)
+            
+            # 2. Obtener detalles de las transacciones para mostrar conceptos
+            transacciones_con_detalles = []
+            for transaccion in transacciones:
+                transaccion_id = transaccion.get('id')
+                if transaccion_id:
+                    detalles = TransaccionModel.obtener_detalles_transaccion(transaccion_id)
+                    transaccion['detalles'] = detalles
+                transacciones_con_detalles.append(transaccion)
+            
+            # 3. Calcular total pagado (solo transacciones confirmadas)
+            total_pagado = 0
+            for transaccion in transacciones:
+                if transaccion.get('estado') == 'CONFIRMADO':
+                    total_pagado += transaccion.get('monto_final', 0)
+            
+            # 4. Calcular costo total del programa según estructura
+            costo_matricula = programa_data.get('costo_matricula', 0) or 0
+            costo_inscripcion = programa_data.get('costo_inscripcion', 0) or 0
+            costo_mensualidad = programa_data.get('costo_mensualidad', 0) or 0
+            numero_cuotas = programa_data.get('numero_cuotas', 1) or 1
+            
+            # Costo total del programa (matrícula + inscripción + (mensualidad * cuotas))
+            costo_total_calculado = costo_matricula + costo_inscripcion + (costo_mensualidad * numero_cuotas)
+            
+            # 5. Aplicar descuento si existe
+            descuento = programa_data.get('descuento_aplicado', 0) or 0
+            costo_con_descuento = costo_total_calculado * (1 - descuento / 100)
+            
+            # 6. Calcular saldo pendiente
+            saldo_pendiente = max(0, costo_con_descuento - total_pagado)
+            
+            # 7. Calcular porcentaje pagado
+            porcentaje_pagado = (total_pagado / costo_con_descuento * 100) if costo_con_descuento > 0 else 0
+            
+            # 8. Determinar estado financiero
+            estado_financiero = "PAGADO" if saldo_pendiente == 0 else "PENDIENTE"
+            
+            # 9. Calcular fecha del último pago
+            ultimo_pago = None
+            if transacciones:
+                # Ordenar por fecha descendente y tomar la más reciente confirmada
+                transacciones_confirmadas = [t for t in transacciones if t.get('estado') == 'CONFIRMADO']
+                if transacciones_confirmadas:
+                    transacciones_confirmadas.sort(key=lambda x: x.get('fecha_pago', ''), reverse=True)
+                    ultimo_pago = transacciones_confirmadas[0].get('fecha_pago')
+            
+            # 10. Calcular próxima cuota pendiente (si aplica)
+            proxima_cuota = None
+            if numero_cuotas > 1 and saldo_pendiente > 0:
+                # Simplificación: asumir cuotas mensuales
+                cuotas_pagadas = int(total_pagado / costo_mensualidad) if costo_mensualidad > 0 else 0
+                cuota_actual = cuotas_pagadas + 1
+                if cuota_actual <= numero_cuotas:
+                    proxima_cuota = {
+                        'numero': cuota_actual,
+                        'monto': costo_mensualidad,
+                        'vencimiento': self.calcular_fecha_vencimiento_cuota(programa_data, cuota_actual)
+                    }
+            
+            # Agregar datos enriquecidos
+            programa_data['transacciones'] = transacciones_con_detalles
+            programa_data['total_pagado'] = total_pagado
+            programa_data['saldo_pendiente'] = saldo_pendiente
+            programa_data['costo_con_descuento'] = costo_con_descuento
+            programa_data['costo_matricula'] = costo_matricula
+            programa_data['costo_inscripcion'] = costo_inscripcion
+            programa_data['costo_mensualidad'] = costo_mensualidad
+            programa_data['numero_cuotas'] = numero_cuotas
+            programa_data['porcentaje_pagado'] = porcentaje_pagado
+            programa_data['estado_financiero'] = estado_financiero
+            programa_data['ultimo_pago'] = ultimo_pago
+            programa_data['proxima_cuota'] = proxima_cuota
+            
+            return programa_data
+            
+        except Exception as e:
+            logger.error(f"Error enriqueciendo datos del programa inscrito: {e}")
+            # Devolver datos básicos si hay error
+            return programa_data
+    
+    def calcular_fecha_vencimiento_cuota(self, programa_data: Dict, numero_cuota: int) -> Optional[str]:
+        """Calcular fecha de vencimiento de una cuota"""
+        try:
+            fecha_inicio = programa_data.get('fecha_inscripcion')
+            if not fecha_inicio:
+                return None
+            
+            from datetime import datetime, timedelta
+            # Convertir a datetime si es string
+            if isinstance(fecha_inicio, str):
+                fecha_inicio = datetime.strptime(fecha_inicio[:10], '%Y-%m-%d')
+            
+            # Calcular fecha de vencimiento (1 mes por cuota después de la inscripción)
+            fecha_vencimiento = fecha_inicio + timedelta(days=30 * numero_cuota)
+            return fecha_vencimiento.strftime('%d/%m/%Y')
+            
+        except Exception:
+            return None
+    
+    def crear_item_error_programa(self, programa_data: Dict, error_msg: str):
+        """Crear un item de error para programas que no se pudieron cargar"""
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: #fdedec;
+                border: 1px solid #f5c6cb;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 5px;
+            }
+        """)
+        
+        layout = QVBoxLayout(frame)
+        
+        # Encabezado con icono de error
+        header_layout = QHBoxLayout()
+        
+        error_icon = QLabel("⚠️")
+        error_icon.setStyleSheet("font-size: 20px;")
+        header_layout.addWidget(error_icon)
+        
+        codigo_label = QLabel(f"<b>{programa_data.get('codigo', 'Programa desconocido')}</b>")
+        codigo_label.setStyleSheet("color: #721c24; font-size: 14px;")
+        header_layout.addWidget(codigo_label)
+        
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+        
+        # Mensaje de error
+        error_label = QLabel(f"Error al cargar información: {error_msg[:100]}...")
+        error_label.setStyleSheet("color: #856404; font-size: 12px;")
+        error_label.setWordWrap(True)
+        layout.addWidget(error_label)
+        
+        # Información básica disponible
+        info_label = QLabel(f"Nombre: {programa_data.get('nombre', 'No disponible')}")
+        info_label.setStyleSheet("color: #6c757d; font-size: 11px;")
+        layout.addWidget(info_label)
+        
+        # Botón para reintentar
+        btn_reintentar = QPushButton("🔄 Reintentar Carga")
+        btn_reintentar.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-size: 11px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+        """)
+        btn_reintentar.clicked.connect(lambda: self.recargar_programa_inscrito(programa_data.get('inscripcion_id')))
+        layout.addWidget(btn_reintentar)
+        
+        return frame
+    
+    def recargar_programa_inscrito(self, inscripcion_id: int):
+        """Recargar un programa específico"""
+        try:
+            # Buscar y actualizar el widget específico
+            for i in range(self.listado_layout_container.count()):
+                widget = self.listado_layout_container.itemAt(i).widget()
+                if widget and hasattr(widget, 'inscripcion_id') and widget.inscripcion_id == inscripcion_id:
+                    # Obtener datos actualizados
+                    from config.database import Database
+                    connection = Database.get_connection()
+                    if connection:
+                        cursor = connection.cursor()
+                        query = """
+                        SELECT 
+                            i.id as inscripcion_id,
+                            p.id as programa_id,
+                            p.codigo,
+                            p.nombre,
+                            p.costo_total,
+                            p.costo_matricula,
+                            p.costo_inscripcion,
+                            p.costo_mensualidad,
+                            p.numero_cuotas,
+                            i.estado as estado_inscripcion,
+                            i.fecha_inscripcion,
+                            i.descuento_aplicado
+                        FROM inscripciones i
+                        JOIN programas p ON i.programa_id = p.id
+                        WHERE i.id = %s
+                        """
+                        cursor.execute(query, (inscripcion_id,))
+                        result = cursor.fetchone()
+                        cursor.close()
+                        Database.return_connection(connection)
+                        
+                        if result:
+                            column_names = [desc[0] for desc in cursor.description]
+                            programa_data = dict(zip(column_names, result))
+                            programa_enriquecido = self.enriquecer_datos_programa_inscrito(programa_data)
+                            
+                            # Reemplazar widget
+                            nuevo_widget = self.crear_item_programa_inscrito(programa_enriquecido)
+                            self.listado_layout_container.insertWidget(i, nuevo_widget)
+                            widget.deleteLater()
+                    
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error recargando programa: {e}")
+            self.mostrar_mensaje("Error", f"No se pudo recargar el programa: {str(e)}", "error")
+    
+    def cargar_estudiantes_inscritos_programa(self):
+        """Cargar los estudiantes inscritos en el programa"""
+        try:
+            # Limpiar listado anterior
+            while self.listado_layout_container.count():
+                child = self.listado_layout_container.takeAt(0)
+                widget = child.widget()
+                if widget:
+                    widget.deleteLater()
+            
+            # TODO: Obtener estudiantes inscritos en el programa desde la base de datos
+            # Por ahora, datos de ejemplo
+            estudiantes_ejemplo = [
+                {
+                    'ci_numero': '1234567',
+                    'ci_expedicion': 'LP',
+                    'nombres': 'Juan Carlos',
+                    'apellido_paterno': 'Pérez',
+                    'email': 'juan@email.com',
+                    'telefono': '77777777',
+                    'estado_inscripcion': 'INSCRITO',
+                    'saldo_pendiente': 300.00,
+                    'pagos': [
+                        {'fecha': '2024-01-20', 'monto': 700.00, 'forma_pago': 'TARJETA', 
+                        'comprobante': 'TARJ-001', 'estado': 'CONFIRMADO'}
+                    ]
+                },
+                {
+                    'ci_numero': '7654321',
+                    'ci_expedicion': 'SC',
+                    'nombres': 'María Fernanda',
+                    'apellido_paterno': 'Gómez',
+                    'email': 'maria@email.com',
+                    'telefono': '78888888',
+                    'estado_inscripcion': 'PREINSCRITO',
+                    'saldo_pendiente': 1200.00,
+                    'pagos': []
+                }
+            ]
+            
+            for estudiante in estudiantes_ejemplo:
+                item_widget = self.crear_item_estudiante_inscrito(estudiante)
+                self.listado_layout_container.addWidget(item_widget)
+            
+            self.listado_layout_container.addStretch()
+            
+        except Exception as e:
+            logger.error(f"Error cargando estudiantes inscritos: {e}")
+    
+    def cargar_programas_disponibles_para_estudiante(self):
+        """Cargar programas disponibles para el estudiante (no inscritos)"""
+        try:
+            self.programas_disponibles_table.setRowCount(0)
+            
+            # Obtener programas en estado INSCRIPCIONES o EN_CURSO
+            from config.database import Database
+            connection = Database.get_connection()
+            if connection:
+                cursor = connection.cursor()
+                query = """
+                SELECT 
+                    p.id,
+                    p.codigo,
+                    p.nombre,
+                    p.estado,
+                    p.cupos_maximos,
+                    p.cupos_inscritos,
+                    p.costo_total,
+                    p.costo_matricula,
+                    p.costo_inscripcion,
+                    p.costo_mensualidad,
+                    p.numero_cuotas,
+                    CASE 
+                        WHEN p.cupos_maximos IS NULL THEN TRUE
+                        WHEN p.cupos_inscritos < p.cupos_maximos THEN TRUE
+                        ELSE FALSE
+                    END as tiene_cupos,
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM inscripciones i 
+                            WHERE i.estudiante_id = %s 
+                            AND i.programa_id = p.id
+                            AND i.estado NOT IN ('RETIRADO')
+                        ) THEN TRUE
+                        ELSE FALSE
+                    END as ya_inscrito
+                FROM programas p
+                WHERE p.estado IN ('INSCRIPCIONES', 'EN_CURSO')
+                AND p.estado != 'CANCELADO'
+                ORDER BY p.estado, p.codigo
+                """
+                
+                cursor.execute(query, (self.estudiante_id,))
+                resultados = cursor.fetchall()
+                cursor.close()
+                Database.return_connection(connection)
+                
+                # Filtrar solo programas no inscritos y con cupos
+                programas_disponibles = []
+                column_names = [desc[0] for desc in cursor.description]
+                
+                for row in resultados:
+                    programa = dict(zip(column_names, row))
+                    # Solo mostrar programas no inscritos y con cupos disponibles
+                    if not programa.get('ya_inscrito', False) and programa.get('tiene_cupos', True):
+                        programas_disponibles.append(programa)
+                
+                self.programas_disponibles_table.setRowCount(len(programas_disponibles))
+                
+                for i, programa in enumerate(programas_disponibles):
+                    # Código
+                    codigo_item = QTableWidgetItem(programa['codigo'])
+                    self.programas_disponibles_table.setItem(i, 0, codigo_item)
+                    
+                    # Nombre
+                    nombre_item = QTableWidgetItem(programa['nombre'])
+                    nombre_item.setToolTip(programa['nombre'])
+                    self.programas_disponibles_table.setItem(i, 1, nombre_item)
+                    
+                    # Estado
+                    estado = programa['estado']
+                    estado_item = QTableWidgetItem(estado)
+                    estado_color = "#27ae60" if estado == 'EN_CURSO' else "#2980b9"
+                    estado_item.setForeground(QBrush(QColor(estado_color)))
+                    self.programas_disponibles_table.setItem(i, 2, estado_item)
+                    
+                    # Cupos
+                    cupos_max = programa.get('cupos_maximos', '∞')
+                    cupos_ins = programa.get('cupos_inscritos', 0)
+                    cupos_text = f"{cupos_ins}/{cupos_max if cupos_max else '∞'}"
+                    self.programas_disponibles_table.setItem(i, 3, QTableWidgetItem(cupos_text))
+                    
+                    # Costo
+                    costo_total = programa.get('costo_total', 0)
+                    self.programas_disponibles_table.setItem(i, 4, QTableWidgetItem(f"{costo_total:.2f} Bs"))
+                    
+                    # Botón Inscribir - CORRECCIÓN AQUÍ: pasar solo el ID
+                    programa_id = programa.get('id')
+                    if programa_id:  # Asegurar que tenemos un ID válido
+                        btn_inscribir = QPushButton("📝 INSCRIBIR")
+                        btn_inscribir.setStyleSheet("""
+                            QPushButton {
+                                background-color: #3498db;
+                                color: white;
+                                border: none;
+                                border-radius: 4px;
+                                padding: 5px 10px;
+                                font-size: 11px;
+                            }
+                            QPushButton:hover {
+                                background-color: #2980b9;
+                            }
+                        """)
+                        # CORRECCIÓN: Pasar solo el ID (entero) no el diccionario completo
+                        btn_inscribir.clicked.connect(lambda checked, pid=programa_id: self.seleccionar_programa_para_inscribir(pid))
+                        self.programas_disponibles_table.setCellWidget(i, 5, btn_inscribir)
+                
+            else:
+                # No hay conexión a la base de datos
+                self.programas_disponibles_table.setRowCount(0)
                 
         except Exception as e:
-            logger.error(f"Error verificando disponibilidad: {e}")
-            self.disponibilidad_verificada = False
-            self.programa_status_label.setText("❌ Error verificando disponibilidad")
-            self.programa_status_label.setStyleSheet("color: #e74c3c;")
-            return False
+            logger.error(f"Error cargando programas disponibles: {e}")
+            self.mostrar_mensaje("Error", f"Error al cargar programas disponibles: {str(e)}", "error")
     
-    def actualizar_costos_programa(self):
-        """Actualizar los costos basados en el programa seleccionado"""
-        if not self.programa_data:
+    def buscar_estudiantes_disponibles(self):
+        """Buscar estudiantes no inscritos en el programa actual"""
+        search_term = self.estudiante_search_input.text().strip()
+        
+        if not search_term:
+            self.mostrar_mensaje("Advertencia", "Ingrese un término de búsqueda", "warning")
             return
         
         try:
-            costo_matricula = self.programa_data.get('costo_matricula', 0) or 0
-            costo_inscripcion = self.programa_data.get('costo_inscripcion', 0) or 0
-            costo_total = self.programa_data.get('costo_total', 0) or 0
+            self.estudiantes_disponibles_table.setRowCount(0)
+            self.estudiante_status_label.setText("🔍 Buscando estudiantes...")
+            self.estudiante_status_label.setStyleSheet("color: #f39c12;")
             
-            self.costo_matricula_label.setText(f"{costo_matricula:.2f} Bs")
-            self.costo_inscripcion_label.setText(f"{costo_inscripcion:.2f} Bs")
-            self.costo_total_label.setText(f"{costo_total:.2f} Bs")
+            # TODO: Implementar búsqueda real de estudiantes no inscritos en este programa
+            # Por ahora, datos de ejemplo
+            estudiantes_ejemplo = [
+                {
+                    'id': 3,
+                    'ci_numero': '8888888',
+                    'ci_expedicion': 'CB',
+                    'nombres': 'Carlos Andrés',
+                    'apellido_paterno': 'Rodríguez',
+                    'email': 'carlos@email.com',
+                    'telefono': '79999999'
+                },
+                {
+                    'id': 4,
+                    'ci_numero': '9999999',
+                    'ci_expedicion': 'PT',
+                    'nombres': 'Ana Lucía',
+                    'apellido_paterno': 'Torrez',
+                    'email': 'ana@email.com',
+                    'telefono': '71111111'
+                }
+            ]
             
-            # Calcular pago inicial
-            pago_inicial = costo_matricula + costo_inscripcion
-            self.pago_inicial_label.setText(f"{pago_inicial:.2f} Bs (Matrícula + Inscripción)")
+            self.estudiantes_disponibles_table.setRowCount(len(estudiantes_ejemplo))
             
-            # Calcular costo final con descuento
-            self.calcular_costos()
+            for i, estudiante in enumerate(estudiantes_ejemplo):
+                # CI
+                ci_completo = f"{estudiante['ci_numero']}-{estudiante['ci_expedicion']}"
+                ci_item = QTableWidgetItem(ci_completo)
+                self.estudiantes_disponibles_table.setItem(i, 0, ci_item)
+                
+                # Nombre
+                nombre_completo = f"{estudiante['nombres']} {estudiante['apellido_paterno']}"
+                self.estudiantes_disponibles_table.setItem(i, 1, QTableWidgetItem(nombre_completo))
+                
+                # Email
+                self.estudiantes_disponibles_table.setItem(i, 2, QTableWidgetItem(estudiante['email']))
+                
+                # Teléfono
+                self.estudiantes_disponibles_table.setItem(i, 3, QTableWidgetItem(estudiante['telefono']))
+                
+                # Botón Inscribir
+                btn_inscribir = QPushButton("📝 INSCRIBIR")
+                btn_inscribir.setStyleSheet("""
+                    QPushButton {
+                        background-color: #27ae60;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                        font-size: 11px;
+                    }
+                    QPushButton:hover {
+                        background-color: #219653;
+                    }
+                """)
+                btn_inscribir.clicked.connect(lambda checked, e=estudiante: self.seleccionar_estudiante_para_inscribir(e))
+                self.estudiantes_disponibles_table.setCellWidget(i, 4, btn_inscribir)
+            
+            self.estudiante_status_label.setText(f"✅ Encontrados {len(estudiantes_ejemplo)} estudiantes")
+            self.estudiante_status_label.setStyleSheet("color: #27ae60;")
             
         except Exception as e:
-            logger.error(f"Error actualizando costos: {e}")
+            logger.error(f"Error buscando estudiantes: {e}")
+            self.estudiante_status_label.setText(f"❌ Error: {str(e)}")
+            self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
     
-    def calcular_costos(self):
-        """Calcular costos finales considerando descuento"""
-        try:
-            costo_total_str = self.costo_total_label.text().replace('Bs', '').strip()
-            costo_total = float(costo_total_str) if costo_total_str else 0
-            
-            descuento_porcentaje = self.descuento_spin.value()
-            
-            if descuento_porcentaje > 0:
-                descuento_monto = costo_total * (descuento_porcentaje / 100)
-                costo_final = costo_total - descuento_monto
-                
-                self.descuento_aplicado_label.setText(f"{descuento_monto:.2f} Bs ({descuento_porcentaje:.2f}%)")
-                self.costo_final_label.setText(f"{costo_final:.2f} Bs")
-            else:
-                self.descuento_aplicado_label.setText("0.00 Bs (0%)")
-                self.costo_final_label.setText(f"{costo_total:.2f} Bs")
-                
-        except Exception as e:
-            logger.error(f"Error calculando costos: {e}")
-    
-    # ===== MÉTODOS DE NAVEGACIÓN =====
-    
-    def cambiar_estudiante(self):
-        """Volver a la búsqueda de estudiante"""
-        self.estudiante_id = None
-        self.estudiante_data = None
-        self.estudiante_encontrado = False
+    def buscar_programas_disponibles(self):
+        """Buscar programas disponibles"""
+        search_term = self.programa_search_input.text().strip()
         
-        self.grupo_info_estudiante.setVisible(False)
-        self.estudiante_results_frame.setVisible(False)
-        self.estudiante_search_input.clear()
-        self.estudiante_status_label.setText("")
+        if not search_term:
+            self.mostrar_mensaje("Advertencia", "Ingrese un término de búsqueda", "warning")
+            return
         
-        # Ocultar secciones dependientes
-        self.grupo_detalles_inscripcion.setVisible(False)
-        self.grupo_costos_pagos.setVisible(False)
+        # Por ahora, solo mostrar mensaje
+        self.mostrar_mensaje("Información", "Búsqueda de programas implementada en cargar_programas_disponibles_para_estudiante()", "info")
     
-    def cambiar_programa(self):
-        """Volver a la búsqueda de programa"""
-        self.programa_id = None
-        self.programa_data = None
-        self.programa_encontrado = False
-        self.disponibilidad_verificada = False
+    def configurar_formulario_inscripcion(self):
+        """Configurar el formulario de inscripción con los datos actuales"""
+        if not self.estudiante_data or not self.programa_data:
+            return
         
-        self.grupo_info_programa.setVisible(False)
-        self.programa_results_frame.setVisible(False)
-        self.programa_search_input.clear()
-        self.programa_status_label.setText("")
+        # Configurar título del formulario
+        estudiante_nombre = f"{self.estudiante_data.get('nombres', '')} {self.estudiante_data.get('apellido_paterno', '')}"
+        programa_codigo = self.programa_data.get('codigo', '')
+        self.titulo_formulario_label.setText(f"📝 INSCRIPCIÓN: {estudiante_nombre} → {programa_codigo}")
         
-        # Ocultar secciones dependientes
-        self.grupo_detalles_inscripcion.setVisible(False)
-        self.grupo_costos_pagos.setVisible(False)
-    
-    def mostrar_detalles_inscripcion(self):
-        """Mostrar sección de detalles de inscripción"""
-        if self.estudiante_encontrado and self.programa_encontrado and self.disponibilidad_verificada:
-            # Mostrar grupo de detalles
-            self.grupo_detalles_inscripcion.setVisible(True)
-            
-            # Mostrar grupo de costos
-            self.grupo_costos_pagos.setVisible(True)
-                
-            # Si es modo edición o lectura, mostrar información de pagos
-            if self.modo in ["editar", "lectura"]:
-                self.pagos_realizados_frame.setVisible(True)
-                self.cargar_informacion_pagos()
-    
-    # ===== IMPLEMENTACIÓN DE MÉTODOS BASE =====
-    
-    def validar_formulario(self):
-        """Validar formulario de inscripción"""
-        errores = []
-
-        # Validar que se haya seleccionado estudiante
-        if not self.estudiante_encontrado or not self.estudiante_id:
-            errores.append("Debe seleccionar un estudiante")
-
-        # Validar que se haya seleccionado programa
-        if not self.programa_encontrado or not self.programa_id:
-            errores.append("Debe seleccionar un programa académico")
-        else:
-            # **CORRECCIÓN: Verificar disponibilidad con la variable correcta**
-            disponible = getattr(self, 'programa_disponible', False)
-
-            if self.modo == "nuevo" and not disponible:
-                errores.append("El programa no tiene cupos disponibles o no está disponible para inscripción")
-
-            # También verificar estado del programa
-            if hasattr(self, 'programa_data') and self.programa_data:
-                programa = self.programa_data
-                estado_programa = programa.get('estado', '')
-
-                from config.constants import EstadoPrograma
-                estados_validos = [EstadoPrograma.INSCRIPCIONES, EstadoPrograma.EN_CURSO]
-
-                if estado_programa not in estados_validos:
-                    errores.append(f"El programa no está disponible para inscripción. Estado actual: {estado_programa}")
-
-        # Validar descuento
-        descuento = self.descuento_spin.value()
-        if descuento < 0 or descuento > 100:
-            errores.append("El descuento debe estar entre 0% y 100%")
-
-        # Validar fecha
-        fecha_inscripcion = self.fecha_inscripcion_date.date()
-        if not fecha_inscripcion.isValid():
-            errores.append("Fecha de inscripción no válida")
-        else:
-            hoy = QDate.currentDate()
-            if fecha_inscripcion > hoy:
-                errores.append("La fecha de inscripción no puede ser futura")
-
-        # Validar que no esté ya inscrito (solo para modo nuevo)
-        if self.modo == "nuevo" and self.estudiante_id and self.programa_id:
-            try:
-                from config.database import Database
-                connection = Database.get_connection()
-                if connection:
-                    cursor = connection.cursor()
-                    query = """
-                    SELECT 1 FROM inscripciones 
-                    WHERE estudiante_id = %s AND programa_id = %s
-                    AND estado IN ('INSCRITO', 'EN_CURSO', 'PREINSCRITO')
-                    """
-                    cursor.execute(query, (self.estudiante_id, self.programa_id))
-                    ya_inscrito = cursor.fetchone()
-                    cursor.close()
-                    Database.return_connection(connection)
-
-                    if ya_inscrito:
-                        errores.append("El estudiante ya está inscrito en este programa")
-            except Exception as e:
-                logger.error(f"Error verificando inscripción existente: {e}")
-                # No agregamos error para no bloquear por fallo en verificación
-
-        logger.info(f"🔍 Validación completada. Errores encontrados: {len(errores)}")
-        logger.info(f"   programa_encontrado: {self.programa_encontrado}")
-        logger.info(f"   programa_id: {self.programa_id}")
-        logger.info(f"   programa_disponible: {getattr(self, 'programa_disponible', 'No definido')}")
-        logger.info(f"   estudiante_encontrado: {self.estudiante_encontrado}")
-        logger.info(f"   estudiante_id: {self.estudiante_id}")
-
-        return len(errores) == 0, errores
-    
-    def obtener_datos(self):
-        """Obtener datos del formulario de inscripción"""
-        fecha_inscripcion = self.fecha_inscripcion_date.date()
-
-        datos = {
-            'inscripcion_id': self.inscripcion_id,
-            'estudiante_id': self.estudiante_id,
-            'programa_id': self.programa_id,
-            'fecha_inscripcion': fecha_inscripcion.toString('yyyy-MM-dd'),
-            'estado': self.estado_combo.currentText(),
-            'descuento_aplicado': self.descuento_spin.value(),
-            'observaciones': self.observaciones_text.toPlainText().strip() or None,  # None si está vacío
-            'estudiante_data': self.estudiante_data,
-            'programa_data': self.programa_data
-        }
-
-        return datos
-    
-    def clear_form(self):
-        """Limpiar formulario completo"""
-        self.inscripcion_id = None
-        self.estudiante_id = None
-        self.programa_id = None
-        self.original_data = {}
-        
-        # Limpiar búsqueda estudiante
-        self.estudiante_search_input.clear()
-        self.estudiante_results_table.setRowCount(0)
-        self.estudiante_results_frame.setVisible(False)
-        self.grupo_info_estudiante.setVisible(False)
-        self.estudiante_status_label.setText("")
-        self.estudiante_encontrado = False
-        
-        # Limpiar búsqueda programa
-        self.programa_search_input.clear()
-        self.programa_results_table.setRowCount(0)
-        self.programa_results_frame.setVisible(False)
-        self.grupo_info_programa.setVisible(False)
-        self.programa_status_label.setText("")
-        self.programa_encontrado = False
-        
-        # Limpiar detalles
+        # Establecer fecha actual
         self.fecha_inscripcion_date.setDate(QDate.currentDate())
-        self.estado_combo.setCurrentIndex(0)
-        self.descuento_spin.setValue(0.0)
-        self.observaciones_text.clear()
+        self.fecha_pago_date.setDate(QDate.currentDate())
         
-        # Ocultar grupos
-        self.grupo_detalles_inscripcion.setVisible(False)
-        self.grupo_costos_pagos.setVisible(False)
+        # Configurar estado inicial
+        self.estado_inscripcion_combo.setCurrentText("PREINSCRITO")
+        self.estado_transaccion_combo.setCurrentText("PENDIENTE")
         
-        # Limpiar costos
-        self.costo_matricula_label.setText("0.00 Bs")
-        self.costo_inscripcion_label.setText("0.00 Bs")
-        self.costo_total_label.setText("0.00 Bs")
-        self.descuento_aplicado_label.setText("0.00 Bs (0%)")
-        self.costo_final_label.setText("0.00 Bs")
-        self.pago_inicial_label.setText("0.00 Bs (Matrícula + Inscripción)")
-        
-        # Limpiar información de pagos
-        self.pagos_realizados_frame.setVisible(False)
-        self.total_pagado_label.setText("0.00 Bs")
-        self.saldo_pendiente_label.setText("0.00 Bs")
-        self.porcentaje_pagado_label.setText("0%")
-        self.progress_bar.setValue(0)
-        
-        # Limpiar pestañas
-        self.tab_widget.setVisible(False)
-        self.pagos_table.setRowCount(0)
-        self.documentos_list.clear()
+        # Calcular total inicial
+        self.calcular_total()
     
-    def cargar_datos(self, datos):
-        """Cargar datos de inscripción existente"""
-        self.inscripcion_id = datos.get('id')
-        self.original_data = datos.copy()
+    def calcular_total(self):
+        """Calcular el total de la transacción"""
+        try:
+            # TODO: Calcular basado en costo del programa y descuento
+            costo_base = self.programa_data.get('costo_total', 0) if self.programa_data else 0
+            descuento = self.descuento_spin.value()
+            
+            if descuento > 0:
+                total = costo_base * (1 - descuento / 100)
+            else:
+                total = costo_base
+            
+            self.total_label.setText(f"{total:.2f} Bs")
+        except Exception as e:
+            logger.error(f"Error calculando total: {e}")
+            self.total_label.setText("0.00 Bs")
+    
+    def realizar_pago_inscripcion(self, inscripcion_id: int):
+        """Abrir diálogo para realizar pago de una inscripción"""
+        try:
+            # Obtener datos de la inscripción
+            from config.database import Database
+            connection = Database.get_connection()
+            if connection:
+                cursor = connection.cursor()
+                query = """
+                SELECT 
+                    i.id as inscripcion_id,
+                    i.estudiante_id, 
+                    i.programa_id,
+                    i.descuento_aplicado,
+                    CONCAT(e.nombres, ' ', e.apellido_paterno) as estudiante_nombre,
+                    p.codigo, 
+                    p.nombre as programa_nombre,
+                    p.costo_total,
+                    p.costo_matricula,
+                    p.costo_inscripcion,
+                    p.costo_mensualidad,
+                    p.numero_cuotas
+                FROM inscripciones i
+                JOIN estudiantes e ON i.estudiante_id = e.id
+                JOIN programas p ON i.programa_id = p.id
+                WHERE i.id = %s
+                """
+                cursor.execute(query, (inscripcion_id,))
+                result = cursor.fetchone()
+                cursor.close()
+                Database.return_connection(connection)
+                
+                if result:
+                    column_names = [desc[0] for desc in cursor.description]
+                    datos = dict(zip(column_names, result))
+                    
+                    # Calcular saldo pendiente
+                    costo_matricula = datos.get('costo_matricula', 0) or 0
+                    costo_inscripcion = datos.get('costo_inscripcion', 0) or 0
+                    costo_mensualidad = datos.get('costo_mensualidad', 0) or 0
+                    numero_cuotas = datos.get('numero_cuotas', 1) or 1
+                    
+                    costo_total = costo_matricula + costo_inscripcion + (costo_mensualidad * numero_cuotas)
+                    descuento = datos.get('descuento_aplicado', 0) or 0
+                    costo_con_descuento = costo_total * (1 - descuento / 100)
+                    
+                    # Obtener total pagado
+                    transacciones = TransaccionModel.obtener_transacciones_inscripcion(inscripcion_id)
+                    total_pagado = 0
+                    for transaccion in transacciones:
+                        if transaccion.get('estado') == 'CONFIRMADO':
+                            total_pagado += transaccion.get('monto_final', 0)
+                    
+                    saldo_pendiente = max(0, costo_con_descuento - total_pagado)
+                    
+                    if saldo_pendiente <= 0:
+                        self.mostrar_mensaje("Información", "Esta inscripción no tiene saldo pendiente", "info")
+                        return
+                    
+                    # Mostrar diálogo simple de pago
+                    self.mostrar_dialogo_pago(inscripcion_id, datos, saldo_pendiente)
+                    
+                else:
+                    self.mostrar_mensaje("Error", "No se encontró la inscripción", "error")
+                    
+        except Exception as e:
+            logger.error(f"Error preparando pago: {e}")
+            self.mostrar_mensaje("Error", f"Error al preparar pago: {str(e)}", "error")
+    
+    def mostrar_dialogo_pago(self, inscripcion_id: int, datos: Dict, saldo_pendiente: float):
+        """Mostrar diálogo simple para registrar pago"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QComboBox, QLineEdit, QDialogButtonBox
         
-        # Cargar estudiante
-        estudiante_id = datos.get('estudiante_id')
-        if estudiante_id:
-            self.cargar_estudiante(estudiante_id)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("💰 Registrar Pago")
+        dialog.setMinimumWidth(400)
         
-        # Cargar programa
-        programa_id = datos.get('programa_id')
-        if programa_id:
-            self.cargar_programa(programa_id)
+        layout = QVBoxLayout(dialog)
         
-        # Cargar detalles de inscripción
-        fecha_inscripcion = datos.get('fecha_inscripcion')
-        if fecha_inscripcion:
-            try:
-                qdate = QDate.fromString(fecha_inscripcion[:10], 'yyyy-MM-dd')
-                if qdate.isValid():
-                    self.fecha_inscripcion_date.setDate(qdate)
-            except:
-                pass
+        # Información
+        estudiante_nombre = datos.get('estudiante_nombre', '')
+        programa_nombre = datos.get('programa_nombre', '')
         
-        estado = datos.get('estado', 'PREINSCRITO')
-        index = self.estado_combo.findText(estado)
-        if index >= 0:
-            self.estado_combo.setCurrentIndex(index)
+        info_label = QLabel(f"""
+        <b>Estudiante:</b> {estudiante_nombre}<br>
+        <b>Programa:</b> {programa_nombre}<br>
+        <b>Saldo pendiente:</b> {saldo_pendiente:.2f} Bs
+        """)
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
         
-        descuento = datos.get('descuento_aplicado', 0)
-        self.descuento_spin.setValue(float(descuento))
+        # Forma de pago
+        layout.addWidget(QLabel("Forma de pago:"))
+        forma_pago_combo = QComboBox()
+        forma_pago_combo.addItems(["EFECTIVO", "TRANSFERENCIA", "TARJETA", "DEPOSITO", "QR"])
+        layout.addWidget(forma_pago_combo)
         
-        observaciones = datos.get('observaciones', '')
-        self.observaciones_text.setPlainText(observaciones)
+        # Monto
+        layout.addWidget(QLabel(f"Monto (máximo: {saldo_pendiente:.2f} Bs):"))
+        monto_input = QLineEdit()
+        monto_input.setPlaceholderText(f"Ej: {saldo_pendiente:.2f}")
+        monto_input.setText(f"{saldo_pendiente:.2f}")
+        layout.addWidget(monto_input)
         
-        # Mostrar pestañas adicionales en modo edición/lectura
-        if self.modo in ["editar", "lectura"]:
-            self.tab_widget.setVisible(True)
-            self.cargar_historial_pagos()
-            self.cargar_documentos()
+        # Comprobante
+        layout.addWidget(QLabel("Número de comprobante:"))
+        comprobante_input = QLineEdit()
+        comprobante_input.setPlaceholderText("Opcional")
+        layout.addWidget(comprobante_input)
+        
+        # Botones
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Procesar pago
+            self.procesar_pago(
+                inscripcion_id=inscripcion_id,
+                forma_pago=forma_pago_combo.currentText(),
+                monto=float(monto_input.text()),
+                comprobante=comprobante_input.text() or None,
+                datos=datos
+            )
+    
+    def procesar_pago(self, inscripcion_id: int, forma_pago: str, monto: float, 
+                        comprobante: Optional[str], datos: Dict):
+        """Procesar el pago registrado"""
+        try:
+            # Convertir None a string vacío si es necesario
+            comprobante_str = comprobante or ""
+            
+            # Aquí iría la lógica para guardar en la base de datos
+            # Por ahora solo mostramos un mensaje
+            self.mostrar_mensaje(
+                "Pago registrado", 
+                f"Se registró pago de {monto:.2f} Bs por {forma_pago}\n"
+                f"Comprobante: {comprobante_str or 'No especificado'}", 
+                "success"
+            )
+            
+            # Recargar datos para actualizar la interfaz
+            if self.estudiante_id:
+                self.cargar_programas_inscritos_estudiante()
+            
+        except Exception as e:
+            logger.error(f"Error procesando pago: {e}")
+            self.mostrar_mensaje("Error", f"Error al procesar pago: {str(e)}", "error")
+    
+    def calcular_recaudado_programa(self, programa_id: int):
+        """Calcular el total recaudado por un programa"""
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if connection:
+                cursor = connection.cursor()
+                
+                # Contar estudiantes inscritos (no retirados)
+                query_inscritos = """
+                SELECT COUNT(*) as total_inscritos
+                FROM inscripciones 
+                WHERE programa_id = %s AND estado NOT IN ('RETIRADO')
+                """
+                cursor.execute(query_inscritos, (programa_id,))
+                result_inscritos = cursor.fetchone()
+                total_inscritos = result_inscritos[0] if result_inscritos else 0
+                
+                # Calcular total recaudado (suma de transacciones confirmadas)
+                query_recaudado = """
+                SELECT COALESCE(SUM(t.monto_final), 0) as total_recaudado
+                FROM transacciones t
+                JOIN inscripciones i ON t.estudiante_id = i.estudiante_id AND t.programa_id = i.programa_id
+                WHERE i.programa_id = %s AND t.estado = 'CONFIRMADO'
+                """
+                cursor.execute(query_recaudado, (programa_id,))
+                result_recaudado = cursor.fetchone()
+                total_recaudado = result_recaudado[0] if result_recaudado else 0
+                
+                cursor.close()
+                Database.return_connection(connection)
+                
+                # Actualizar interfaz
+                self.programa_inscritos_label.setText(f"{total_inscritos} estudiantes")
+                self.programa_recaudado_label.setText(f"{total_recaudado:.2f} Bs")
+                
+        except Exception as e:
+            logger.error(f"Error calculando recaudado: {e}")
+            self.programa_inscritos_label.setText("Error")
+            self.programa_recaudado_label.setText("Error")
+    
+    def seleccionar_estudiante_desde_tabla(self, item):
+        """Seleccionar estudiante desde la tabla"""
+        row = item.row()
+        estudiante_id_item = self.estudiantes_disponibles_table.item(row, 0)
+        # TODO: Obtener ID real del estudiante
+        if estudiante_id_item:
+            # Por ahora, simular selección
+            estudiante_ejemplo = {
+                'id': 3,
+                'ci_numero': '8888888',
+                'ci_expedicion': 'CB',
+                'nombres': 'Carlos Andrés',
+                'apellido_paterno': 'Rodríguez'
+            }
+            self.seleccionar_estudiante_para_inscribir(estudiante_ejemplo)
+    
+    def seleccionar_programa_desde_tabla(self, item):
+        """Seleccionar programa desde la tabla"""
+        row = item.row()
+        programa_id_item = self.programas_disponibles_table.item(row, 0)
+        # TODO: Obtener ID real del programa
+        if programa_id_item:
+            # Por ahora, simular selección
+            programa_ejemplo_id = 1  # ID de ejemplo
+            self.seleccionar_programa_para_inscribir(programa_ejemplo_id)
+    
+    def seleccionar_estudiante_para_inscribir(self, estudiante_data):
+        """Seleccionar estudiante para inscribir en el programa actual"""
+        self.estudiante_id = estudiante_data.get('id')
+        self.estudiante_data = estudiante_data
+        
+        # Actualizar interfaz para modo inscripción
+        self.configurar_interfaz_segun_contexto()
+    
+    def seleccionar_programa_para_inscribir(self, programa_id: int):
+        """Seleccionar programa para inscribir al estudiante actual"""
+        try:
+            # Cargar información del programa
+            resultado = ProgramaModel.obtener_programa(programa_id)
+            if resultado.get('success') and resultado.get('data'):
+                self.programa_id = programa_id
+                self.programa_data = resultado['data']
+                
+                # Actualizar interfaz para modo inscripción
+                self.configurar_interfaz_segun_contexto()
+            else:
+                mensaje = resultado.get('message', 'Error desconocido')
+                self.mostrar_mensaje("Error", f"No se pudo cargar el programa: {mensaje}", "error")
+                
+        except Exception as e:
+            logger.error(f"Error seleccionando programa: {e}")
+            self.mostrar_mensaje("Error", f"Error al seleccionar programa: {str(e)}", "error")
+    
+    def realizar_inscripcion(self):
+        """Realizar la inscripción"""
+        # TODO: Implementar lógica de inscripción
+        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
+    
+    def cancelar_inscripcion(self):
+        """Cancelar la inscripción"""
+        self.close_overlay()
+    
+    def agregar_documento(self):
+        """Agregar documento de respaldo"""
+        # TODO: Implementar selector de archivos
+        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
+    
+    def limpiar_listados(self):
+        """Limpiar todos los listados dinámicos"""
+        while self.listado_layout_container.count():
+            child = self.listado_layout_container.takeAt(0)
+            widget = child.widget()
+            if widget:
+                widget.deleteLater()
+        
+        self.programas_disponibles_table.setRowCount(0)
+        self.estudiantes_disponibles_table.setRowCount(0)
+        self.documentos_list_widget.clear()
+        self.detalles_table.setRowCount(1)
+    
+    # ===== MÉTODOS PARA CARGAR Y GUARDAR DATOS =====
     
     def guardar_datos(self):
         """Guardar los datos de la inscripción (llamado por BaseOverlay)"""
         try:
-            # **DIAGNÓSTICO**
-            datos = self.obtener_datos()  # Obtener primero para diagnóstico
-            self.diagnosticar_creacion(datos)
+            # Obtener datos del formulario
+            datos = self.obtener_datos()
             
             # Validar formulario
             valido, errores = self.validar_formulario()
@@ -1450,112 +2188,30 @@ class InscripcionOverlay(BaseOverlay):
                 self.mostrar_mensaje("Validación", mensaje_error, "warning")
                 return
             
-            # Obtener datos del formulario
-            datos = self.obtener_datos()
-            
             logger.info(f"🔵 Guardando inscripción - Modo: {self.modo}")
             logger.info(f"   Estudiante ID: {datos.get('estudiante_id')}")
             logger.info(f"   Programa ID: {datos.get('programa_id')}")
-            logger.info(f"   Descuento: {datos.get('descuento_aplicado')}")
-            logger.info(f"   Estado: {datos.get('estado')}")
             
             if self.modo == "nuevo":
-                # **VERIFICAR DISPONIBILIDAD ANTES DE CREAR**
-                try:
-                    disponibilidad = InscripcionModel.verificar_disponibilidad_programa(datos['programa_id'])
-                    
-                    if not disponibilidad.get('success'):
-                        self.mostrar_mensaje(
-                            "Error de verificación", 
-                            f"No se pudo verificar disponibilidad: {disponibilidad.get('message', 'Error desconocido')}", 
-                            "error"
-                        )
-                        return
-                    
-                    if not disponibilidad['data']['disponible']:
-                        self.mostrar_mensaje(
-                            "Sin cupos disponibles", 
-                            f"El programa no está disponible: {disponibilidad['data']['mensaje']}", 
-                            "error"
-                        )
-                        return
-                
-                except Exception as e:
-                    logger.error(f"Error verificando disponibilidad: {e}")
-                    self.mostrar_mensaje(
-                        "Error de sistema", 
-                        f"No se pudo verificar disponibilidad del programa: {str(e)}", 
-                        "error"
-                    )
-                    return
-            
-            if self.modo == "nuevo":
-                # **CORRECCIÓN: Usar fecha_inscripcion de los datos obtenidos**
-                fecha_inscripcion_str = datos.get('fecha_inscripcion')
-                
-                # Convertir string a date si es necesario
-                fecha_inscripcion_date = None
-                if fecha_inscripcion_str:
-                    try:
-                        from datetime import datetime
-                        fecha_inscripcion_date = datetime.strptime(fecha_inscripcion_str, '%Y-%m-%d').date()
-                    except Exception as e:
-                        logger.warning(f"No se pudo parsear fecha {fecha_inscripcion_str}: {e}")
-                        # Usar None para que el stored procedure use CURRENT_DATE
-                    
-                # **LLAMAR CORRECTAMENTE A InscripcionModel.crear_inscripcion**
+                # **LLAMAR A InscripcionModel.crear_inscripcion**
                 try:
                     resultado = InscripcionModel.crear_inscripcion(
                         estudiante_id=datos['estudiante_id'],
                         programa_id=datos['programa_id'],
-                        descuento_aplicado=datos['descuento_aplicado'],
-                        observaciones=datos['observaciones'] or None,
-                        fecha_inscripcion=fecha_inscripcion_date  # Puede ser None
+                        descuento_aplicado=datos.get('descuento', 0),
+                        observaciones=None,  # Puedes agregar campo para observaciones
+                        fecha_inscripcion=datos.get('fecha_inscripcion')
                     )
                     
                     logger.info(f"🔵 Resultado de crear_inscripcion: {resultado}")
                     
-                    # Verificar resultado - manejar diferentes estructuras de respuesta
-                    exito = False
-                    mensaje_resultado = ""
-                    datos_resultado = None
-                    
-                    if isinstance(resultado, dict):
-                        if resultado.get('exito') is not None:
-                            exito = resultado.get('exito', False)
-                            mensaje_resultado = resultado.get('mensaje', '')
-                            datos_resultado = resultado.get('data')
-                        elif resultado.get('success') is not None:
-                            exito = resultado.get('success', False)
-                            mensaje_resultado = resultado.get('message', resultado.get('mensaje', ''))
-                            datos_resultado = resultado.get('data')
-                        else:
-                            # Asumir éxito si no hay campo de error explícito
-                            exito = True
-                            mensaje_resultado = 'Inscripción creada exitosamente'
-                            datos_resultado = resultado
-                    else:
-                        # Resultado no es un dict, asumir éxito
-                        exito = True
-                        mensaje_resultado = 'Inscripción creada exitosamente'
-                        datos_resultado = resultado
-                    
-                    if exito:
-                        mensaje_final = mensaje_resultado or 'Inscripción creada exitosamente.'
-                        
-                        # Emitir señal
-                        if datos_resultado:
-                            self.inscripcion_creada.emit(datos_resultado)
-                        else:
-                            self.inscripcion_creada.emit(datos)
-                        
-                        self.mostrar_mensaje("✅ Éxito", mensaje_final, "success")
-                        
-                        # Cerrar overlay después de 1 segundo
+                    if resultado.get('exito', False) or resultado.get('success', False):
+                        mensaje = resultado.get('mensaje', resultado.get('message', 'Inscripción creada exitosamente'))
+                        self.mostrar_mensaje("✅ Éxito", mensaje, "success")
+                        self.inscripcion_creada.emit(datos)
                         QTimer.singleShot(1000, self.close_overlay)
-                    
                     else:
-                        mensaje_error = mensaje_resultado or 'No se pudo crear la inscripción.'
+                        mensaje_error = resultado.get('mensaje', resultado.get('message', 'No se pudo crear la inscripción'))
                         self.mostrar_mensaje("Error", mensaje_error, "error")
                     
                 except Exception as e:
@@ -1576,36 +2232,20 @@ class InscripcionOverlay(BaseOverlay):
                     resultado = InscripcionModel.actualizar_inscripcion(
                         inscripcion_id=self.inscripcion_id,
                         nuevo_estado=datos.get('estado'),
-                        nuevo_descuento=datos.get('descuento_aplicado'),
-                        nuevas_observaciones=datos.get('observaciones') or None
+                        nuevo_descuento=datos.get('descuento'),
+                        nuevas_observaciones=None  # Puedes agregar campo para observaciones
                     )
                     
                     logger.info(f"🔵 Resultado de actualizar_inscripcion: {resultado}")
                     
-                    # Verificar resultado - manejar diferentes estructuras
-                    exito = False
-                    mensaje_resultado = ""
-                    
-                    if isinstance(resultado, dict):
-                        if resultado.get('exito') is not None:
-                            exito = resultado.get('exito', False)
-                            mensaje_resultado = resultado.get('mensaje', '')
-                        elif resultado.get('success') is not None:
-                            exito = resultado.get('success', False)
-                            mensaje_resultado = resultado.get('message', resultado.get('mensaje', ''))
-                        else:
-                            exito = True
-                            mensaje_resultado = 'Inscripción actualizada exitosamente'
-                    else:
-                        exito = True
-                        mensaje_resultado = 'Inscripción actualizada exitosamente'
-                    
-                    if exito:
-                        self.mostrar_mensaje("✅ Éxito", mensaje_resultado or "Inscripción actualizada exitosamente", "success")
+                    if resultado.get('exito', False) or resultado.get('success', False):
+                        mensaje = resultado.get('mensaje', resultado.get('message', 'Inscripción actualizada exitosamente'))
+                        self.mostrar_mensaje("✅ Éxito", mensaje, "success")
                         self.inscripcion_actualizada.emit(datos)
                         QTimer.singleShot(1000, self.close_overlay)
                     else:
-                        self.mostrar_mensaje("Error", mensaje_resultado or 'Error al actualizar', "error")
+                        mensaje_error = resultado.get('mensaje', resultado.get('message', 'Error al actualizar'))
+                        self.mostrar_mensaje("Error", mensaje_error, "error")
                     
                 except Exception as e:
                     logger.error(f"Error actualizando inscripción: {e}", exc_info=True)
@@ -1614,229 +2254,6 @@ class InscripcionOverlay(BaseOverlay):
         except Exception as e:
             logger.error(f"Error general en guardar_datos: {e}", exc_info=True)
             self.mostrar_mensaje("Error", f"Error al guardar: {str(e)}", "error")
-    
-    def close_overlay(self):
-        """Cerrar el overlay"""
-        self.close()
-        if hasattr(self, 'overlay_closed'):
-            self.overlay_closed.emit()
-    
-    # ===== MÉTODOS ADICIONALES =====
-    
-    def cargar_informacion_pagos(self):
-        """Cargar información de pagos realizados"""
-        if not self.estudiante_id or not self.programa_id:
-            return
-        
-        try:
-            # Usar el modelo de estudiante para obtener información financiera
-            pagos = EstudianteModel.obtener_pagos_estudiante_programa(
-                estudiante_id=self.estudiante_id,
-                programa_id=self.programa_id
-            )
-            
-            if pagos:
-                total_pagado = sum(pago.get('monto_final', 0) for pago in pagos)
-            else:
-                total_pagado = 0
-            
-            # Calcular saldo pendiente
-            costo_final_str = self.costo_final_label.text().replace('Bs', '').strip()
-            costo_final = float(costo_final_str) if costo_final_str else 0
-            saldo_pendiente = max(0, costo_final - total_pagado)
-            
-            # Calcular porcentaje
-            porcentaje = (total_pagado / costo_final * 100) if costo_final > 0 else 0
-            
-            # Actualizar interfaz
-            self.total_pagado_label.setText(f"{total_pagado:.2f} Bs")
-            self.saldo_pendiente_label.setText(f"{saldo_pendiente:.2f} Bs")
-            self.porcentaje_pagado_label.setText(f"{porcentaje:.1f}%")
-            self.progress_bar.setValue(int(porcentaje))
-            
-        except Exception as e:
-            logger.error(f"Error cargando información de pagos: {e}")
-    
-    def cargar_historial_pagos(self):
-        """Cargar historial de pagos en la tabla"""
-        if not self.estudiante_id or not self.programa_id:
-            return
-        
-        try:
-            pagos = EstudianteModel.obtener_pagos_estudiante_programa(
-                estudiante_id=self.estudiante_id,
-                programa_id=self.programa_id
-            )
-            
-            self.pagos_table.setRowCount(len(pagos))
-            
-            for i, pago in enumerate(pagos):
-                # ID
-                self.pagos_table.setItem(i, 0, QTableWidgetItem(str(pago.get('transaccion_id', ''))))
-                
-                # Fecha
-                fecha = pago.get('fecha_pago', '')
-                self.pagos_table.setItem(i, 1, QTableWidgetItem(fecha[:10] if fecha else ''))
-                
-                # Forma de pago
-                self.pagos_table.setItem(i, 2, QTableWidgetItem(pago.get('forma_pago', '')))
-                
-                # Monto
-                monto = pago.get('monto_final', 0)
-                self.pagos_table.setItem(i, 3, QTableWidgetItem(f"{monto:.2f} Bs"))
-                
-                # Comprobante
-                self.pagos_table.setItem(i, 4, QTableWidgetItem(pago.get('numero_comprobante', '')))
-                
-                # Estado
-                estado = pago.get('estado_transaccion', '')
-                estado_item = QTableWidgetItem(estado)
-                self.pagos_table.setItem(i, 5, estado_item)
-                
-                # Color según estado
-                if estado_item:
-                    if estado == 'CONFIRMADO':
-                        estado_item.setForeground(QBrush(QColor("#27ae60")))
-                    elif estado == 'PENDIENTE':
-                        estado_item.setForeground(QBrush(QColor("#f39c12")))
-                    elif estado == 'ANULADO':
-                        estado_item.setForeground(QBrush(QColor("#e74c3c")))
-                
-                # Observaciones
-                self.pagos_table.setItem(i, 6, QTableWidgetItem(pago.get('observaciones', '')))
-            
-            self.pagos_table.resizeColumnsToContents()
-            
-        except Exception as e:
-            logger.error(f"Error cargando historial de pagos: {e}")
-    
-    def cargar_documentos(self):
-        """Cargar documentos adjuntos"""
-        # TODO: Implementar carga de documentos desde base de datos
-        self.documentos_list.clear()
-    
-    def registrar_nuevo_pago(self):
-        """Registrar nuevo pago para la inscripción"""
-        # TODO: Implementar diálogo para registrar nuevo pago
-        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
-    
-    def subir_documento(self):
-        """Subir nuevo documento"""
-        # TODO: Implementar diálogo para subir documento
-        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
-    
-    def habilitar_botones_documentos(self):
-        """Habilitar/deshabilitar botones de documentos según selección"""
-        seleccionado = self.documentos_list.currentItem() is not None
-        self.btn_ver_documento.setEnabled(seleccionado)
-        self.btn_descargar_documento.setEnabled(seleccionado)
-        self.btn_eliminar_documento.setEnabled(seleccionado)
-    
-    def ver_documento(self):
-        """Ver documento seleccionado"""
-        # TODO: Implementar visualización de documento
-        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
-    
-    def descargar_documento(self):
-        """Descargar documento seleccionado"""
-        # TODO: Implementar descarga de documento
-        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
-    
-    def eliminar_documento(self):
-        """Eliminar documento seleccionado"""
-        # TODO: Implementar eliminación de documento
-        self.mostrar_mensaje("Información", "Funcionalidad en desarrollo", "info")
-    
-    def show_form(self, solo_lectura=False, datos=None, modo="nuevo", inscripcion_id=None,
-                    estudiante_id: Optional[int] = None, programa_id: Optional[int] = None):
-        """Mostrar overlay con configuración específica"""
-        self.solo_lectura = solo_lectura
-        self.modo = modo
-        
-        try:
-            # Configurar título según modo
-            titulo = ""
-            if modo == "nuevo":
-                titulo = "🎓 Nueva Inscripción"
-            elif modo == "editar" and inscripcion_id:
-                titulo = f"✏️ Editar Inscripción - ID: {inscripcion_id}"
-            elif modo == "lectura" and inscripcion_id:
-                titulo = f"👁️ Ver Inscripción - ID: {inscripcion_id}"
-            else:
-                titulo = "🎓 Gestión de Inscripción"
-                
-            self.set_titulo(titulo)
-            
-            # Cargar datos si se proporcionan
-            if datos:
-                self.cargar_datos(datos)
-            elif inscripcion_id and not datos:
-                # Cargar datos desde la base de datos
-                self.cargar_datos_desde_db(inscripcion_id)
-            elif modo == "nuevo":
-                self.clear_form()
-                
-                # Si se proporcionan IDs de estudiante o programa, cargarlos automáticamente
-                if estudiante_id:
-                    self.cargar_estudiante(estudiante_id)
-                
-                if programa_id:
-                    # Usar timer para cargar programa después de que la UI esté lista
-                    QTimer.singleShot(100, lambda: self.cargar_programa(programa_id))
-            
-            # Configurar botones según modo
-            if modo == "lectura" or solo_lectura:
-                self.btn_guardar.setText("👈 VOLVER")
-                self.btn_guardar.setVisible(False)
-                self.btn_cancelar.setText("👈 CERRAR")
-            elif modo == "editar":
-                self.btn_guardar.setText("💾 ACTUALIZAR INSCRIPCIÓN")
-                self.btn_guardar.setVisible(True)
-            else:  # modo == "nuevo"
-                self.btn_guardar.setText("💾 GUARDAR INSCRIPCIÓN")
-                self.btn_guardar.setVisible(True)
-                
-            # Habilitar/deshabilitar controles según modo
-            es_solo_lectura = solo_lectura or modo == "lectura"
-            
-            # Controles de búsqueda (siempre habilitados en modo nuevo)
-            if modo == "nuevo":
-                self.estudiante_search_input.setEnabled(True)
-                self.btn_buscar_estudiante.setEnabled(True)
-                self.programa_search_input.setEnabled(True)
-                self.btn_buscar_programa.setEnabled(True)
-            else:
-                self.estudiante_search_input.setEnabled(False)
-                self.btn_buscar_estudiante.setEnabled(False)
-                self.programa_search_input.setEnabled(False)
-                self.btn_buscar_programa.setEnabled(False)
-            
-            # Controles de formulario
-            self.fecha_inscripcion_date.setEnabled(not es_solo_lectura)
-            self.estado_combo.setEnabled(not es_solo_lectura)
-            self.descuento_spin.setEnabled(not es_solo_lectura)
-            self.observaciones_text.setReadOnly(es_solo_lectura)
-            
-            # Botones adicionales
-            if modo == "nuevo":
-                self.btn_cambiar_estudiante.setEnabled(True)
-                self.btn_cambiar_programa.setEnabled(True)
-            else:
-                self.btn_cambiar_estudiante.setEnabled(False)
-                self.btn_cambiar_programa.setEnabled(False)
-            
-            # Botones en pestañas
-            self.btn_nuevo_pago.setEnabled(not es_solo_lectura)
-            self.btn_subir_documento.setEnabled(not es_solo_lectura)
-            
-            # Llamar al método base
-            super().show_form(es_solo_lectura)
-            
-            logger.info(f"✅ Overlay de inscripción mostrado - Modo: {modo}, ID: {self.inscripcion_id}, Estudiante ID: {estudiante_id}, Programa ID: {programa_id}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error en show_form: {e}")
-            super().show_form(solo_lectura)
     
     def cargar_datos_desde_db(self, inscripcion_id: int):
         """Cargar datos de inscripción desde la base de datos"""
@@ -1883,53 +2300,291 @@ class InscripcionOverlay(BaseOverlay):
             logger.error(f"Error cargando datos desde DB: {e}")
             self.mostrar_mensaje("Error", f"No se pudieron cargar los datos: {str(e)}", "error")
     
-    def diagnosticar_creacion(self, datos):
-        """Método de diagnóstico para creación de inscripción"""
-        logger.info("🔍 DIAGNÓSTICO DE CREACIÓN DE INSCRIPCIÓN")
-        logger.info(f"   Modo: {self.modo}")
-        logger.info(f"   Estudiante ID: {datos.get('estudiante_id')}")
-        logger.info(f"   Programa ID: {datos.get('programa_id')}")
-        logger.info(f"   Descuento: {datos.get('descuento_aplicado')}")
-        logger.info(f"   Observaciones: {datos.get('observaciones')}")
-        logger.info(f"   Fecha inscripción: {datos.get('fecha_inscripcion')}")
-
-        # Verificar datos del programa
-        if hasattr(self, 'programa_data') and self.programa_data:
-            programa = self.programa_data
-            logger.info(f"   Programa cupos_maximos: {programa.get('cupos_maximos')}")
-            logger.info(f"   Programa cupos_inscritos: {programa.get('cupos_inscritos')}")
-            logger.info(f"   Programa estado: {programa.get('estado')}")
-
-        # Verificar disponibilidad
-        try:
-            disponibilidad = InscripcionModel.verificar_disponibilidad_programa(datos['programa_id'])
-            logger.info(f"   Disponibilidad: {disponibilidad}")
-        except Exception as e:
-            logger.error(f"   Error verificando disponibilidad: {e}")
+    def cargar_datos(self, datos):
+        """Cargar datos de inscripción existente"""
+        self.inscripcion_id = datos.get('id')
+        self.original_data = datos.copy()
+        
+        # Cargar estudiante
+        estudiante_id = datos.get('estudiante_id')
+        if estudiante_id:
+            self.estudiante_id = estudiante_id
+            self.cargar_info_estudiante(estudiante_id)
+        
+        # Cargar programa
+        programa_id = datos.get('programa_id')
+        if programa_id:
+            self.programa_id = programa_id
+            self.cargar_info_programa(programa_id)
+        
+        # Cargar detalles de inscripción si existen en los datos
+        fecha_inscripcion = datos.get('fecha_inscripcion')
+        if fecha_inscripcion and hasattr(self, 'fecha_inscripcion_date'):
+            try:
+                qdate = QDate.fromString(fecha_inscripcion[:10], 'yyyy-MM-dd')
+                if qdate.isValid():
+                    self.fecha_inscripcion_date.setDate(qdate)
+            except:
+                pass
+        
+        # Si tenemos ambos IDs, mostrar formulario de inscripción
+        if self.estudiante_id and self.programa_id:
+            self.configurar_interfaz_segun_contexto()
     
-    def diagnosticar_estado(self):
-        """Mostrar estado actual del formulario"""
-        estado = f"""
-        🔍 DIAGNÓSTICO DE ESTADO - InscripcionOverlay
-        ============================================
-        Modo: {self.modo}
-
-        ESTUDIANTE:
-            Encontrado: {self.estudiante_encontrado}
-            ID: {self.estudiante_id}
-            Nombre: {getattr(self, 'estudiante_nombre_label', 'N/A').strip() if hasattr(self, 'estudiante_nombre_label') else 'N/A'}
-
-        PROGRAMA:
-            Encontrado: {self.programa_encontrado}
-            ID: {self.programa_id}
-            Código: {getattr(self, 'programa_codigo_label', 'N/A').strip() if hasattr(self, 'programa_codigo_label') else 'N/A'}
-            Disponible: {getattr(self, 'programa_disponible', 'No definido')}
-            Estado: {getattr(self, 'programa_estado_label', 'N/A').strip() if hasattr(self, 'programa_estado_label') else 'N/A'}
-
-        INTERFAZ:
-            Grupo info programa visible: {self.grupo_info_programa.isVisible() if hasattr(self, 'grupo_info_programa') else 'N/A'}
-            Grupo detalles visible: {self.grupo_detalles_inscripcion.isVisible() if hasattr(self, 'grupo_detalles_inscripcion') else 'N/A'}
-        """
-
-        print(estado)
-        logger.info(estado)
+    def close_overlay(self):
+        """Cerrar el overlay"""
+        self.close()
+        if hasattr(self, 'overlay_closed'):
+            self.overlay_closed.emit()
+    
+    # ===== MÉTODOS OVERRIDE DE BASE =====
+    
+    def validar_formulario(self):
+        """Validar formulario de inscripción"""
+        errores = []
+        
+        # Validaciones básicas dependiendo del modo
+        if self.estudiante_id and self.programa_id:
+            # Modo inscripción: validar formulario completo
+            if not self.fecha_inscripcion_date.date().isValid():
+                errores.append("Fecha de inscripción no válida")
+            
+            if self.descuento_spin.value() < 0 or self.descuento_spin.value() > 100:
+                errores.append("Descuento debe estar entre 0% y 100%")
+        
+        return len(errores) == 0, errores
+    
+    def obtener_datos(self):
+        """Obtener datos del formulario"""
+        datos = {
+            'estudiante_id': self.estudiante_id,
+            'programa_id': self.programa_id,
+            'fecha_inscripcion': self.fecha_inscripcion_date.date().toString('yyyy-MM-dd'),
+            'estado': self.estado_inscripcion_combo.currentText(),
+            'descuento': self.descuento_spin.value(),
+            'estudiante_data': self.estudiante_data,
+            'programa_data': self.programa_data
+        }
+        
+        return datos
+    
+    def clear_form(self):
+        """Limpiar formulario completo"""
+        # self.inscripcion_id = None
+        # self.estudiante_id = None
+        # self.programa_id = None
+        self.original_data = {}
+        
+        # Limpiar datos
+        self.estudiante_data = None
+        self.programa_data = None
+        self.programas_inscritos = []
+        self.estudiantes_inscritos = []
+        self.programas_disponibles = []
+        self.estudiantes_disponibles = []
+        
+        # Limpiar interfaz
+        self.limpiar_listados()
+        
+        # Ocultar todas las secciones
+        self.grupo_info_estudiante.setVisible(False)
+        self.grupo_buscar_estudiante.setVisible(False)
+        self.grupo_info_programa.setVisible(False)
+        self.grupo_programas_disponibles.setVisible(False)
+        self.grupo_buscar_programa.setVisible(False)
+        self.seccion_listado_frame.setVisible(False)
+        self.seccion_formulario_frame.setVisible(False)
+        
+        # Limpiar campos del formulario
+        if hasattr(self, 'fecha_inscripcion_date'):
+            self.fecha_inscripcion_date.setDate(QDate.currentDate())
+        if hasattr(self, 'fecha_pago_date'):
+            self.fecha_pago_date.setDate(QDate.currentDate())
+        if hasattr(self, 'descuento_spin'):
+            self.descuento_spin.setValue(0.0)
+        if hasattr(self, 'estado_inscripcion_combo'):
+            self.estado_inscripcion_combo.setCurrentIndex(0)
+        if hasattr(self, 'estado_transaccion_combo'):
+            self.estado_transaccion_combo.setCurrentIndex(0)
+        if hasattr(self, 'forma_pago_combo'):
+            self.forma_pago_combo.setCurrentIndex(0)
+        if hasattr(self, 'origen_transaccion_input'):
+            self.origen_transaccion_input.clear()
+        if hasattr(self, 'total_label'):
+            self.total_label.setText("0.00 Bs")
+    
+    def show_form(self, solo_lectura=False, datos=None, modo="nuevo", inscripcion_id=None,
+                estudiante_id: Optional[int] = None, programa_id: Optional[int] = None):
+        """Mostrar overlay con configuración específica"""
+        self.solo_lectura = solo_lectura
+        self.modo = modo
+        
+        # Configurar IDs según parámetros
+        if estudiante_id:
+            self.estudiante_id = estudiante_id
+        
+        if programa_id:
+            self.programa_id = programa_id
+        
+        logger.debug(f"Mostrando formulario - Modo: {modo}, Estudiante ID: {self.estudiante_id}, Programa ID: {self.programa_id}, Inscripción ID: {inscripcion_id}")
+        
+        # Configurar título según modo
+        titulo = ""
+        if modo == "nuevo":
+            if self.estudiante_id and self.programa_id:
+                titulo = "🎓 Nueva Inscripción"
+            elif self.estudiante_id:
+                titulo = "👤 Gestión del Estudiante"
+            elif self.programa_id:
+                titulo = "📚 Gestión del Programa"
+            else:
+                titulo = "🎓 Gestión de Inscripciones"
+        elif modo == "editar" and inscripcion_id:
+            titulo = f"✏️ Editar Inscripción - ID: {inscripcion_id}"
+        elif modo == "lectura" and inscripcion_id:
+            titulo = f"👁️ Ver Inscripción - ID: {inscripcion_id}"
+        
+        self.set_titulo(titulo)
+        
+        # Cargar datos si se proporcionan
+        if datos:
+            self.cargar_datos(datos)
+        elif inscripcion_id and not datos:
+            self.cargar_datos_desde_db(inscripcion_id)
+        else:
+            self.clear_form()
+            self.configurar_interfaz_segun_contexto()
+        
+        # Configurar botones base según modo
+        if modo == "lectura" or solo_lectura:
+            self.btn_guardar.setText("👈 VOLVER")
+            self.btn_guardar.setVisible(False)
+            self.btn_cancelar.setText("👈 CERRAR")
+        elif modo == "editer":
+            self.btn_guardar.setText("💾 ACTUALIZAR")
+            self.btn_guardar.setVisible(True)
+        else:
+            self.btn_guardar.setText("💾 GUARDAR")
+            self.btn_guardar.setVisible(False)  # Ocultamos porque tenemos nuestros propios botones
+        
+        # Llamar al método base
+        super().show_form(solo_lectura)
+        
+        logger.info(f"✅ Overlay mostrado - Modo: {modo}, Est: {self.estudiante_id}, Prog: {self.programa_id}")
+    
+    def enriquecer_datos_programa(self, programa_data: Dict) -> Dict:
+        """Enriquecer datos del programa con información de pagos"""
+        try:
+            inscripcion_id = programa_data.get('inscripcion_id')
+            estudiante_id = self.estudiante_id
+            programa_id = programa_data.get('programa_id')
+            
+            if not inscripcion_id or not estudiante_id or not programa_id:
+                return programa_data
+            
+            # Obtener transacciones relacionadas a esta inscripción
+            transacciones = TransaccionModel.obtener_transacciones_inscripcion(inscripcion_id)
+            
+            # Calcular total pagado (solo transacciones confirmadas)
+            total_pagado = 0
+            for transaccion in transacciones:
+                if transaccion.get('estado') == 'CONFIRMADO':
+                    total_pagado += transaccion.get('monto_final', 0)
+            
+            # Calcular costo total considerando estructura del programa
+            costo_matricula = programa_data.get('costo_matricula', 0) or 0
+            costo_inscripcion = programa_data.get('costo_inscripcion', 0) or 0
+            costo_mensualidad = programa_data.get('costo_mensualidad', 0) or 0
+            numero_cuotas = programa_data.get('numero_cuotas', 1) or 1
+            
+            # Costo total del programa (matrícula + inscripción + (mensualidad * cuotas))
+            costo_total_calculado = costo_matricula + costo_inscripcion + (costo_mensualidad * numero_cuotas)
+            
+            # Aplicar descuento si existe
+            descuento = programa_data.get('descuento_aplicado', 0) or 0
+            costo_con_descuento = costo_total_calculado * (1 - descuento / 100)
+            
+            # Calcular saldo pendiente
+            saldo_pendiente = max(0, costo_con_descuento - total_pagado)
+            
+            # Agregar datos enriquecidos
+            programa_data['transacciones'] = transacciones
+            programa_data['total_pagado'] = total_pagado
+            programa_data['saldo_pendiente'] = saldo_pendiente
+            programa_data['costo_con_descuento'] = costo_con_descuento
+            programa_data['costo_matricula'] = costo_matricula
+            programa_data['costo_inscripcion'] = costo_inscripcion
+            programa_data['costo_mensualidad'] = costo_mensualidad
+            programa_data['numero_cuotas'] = numero_cuotas
+            
+            return programa_data
+            
+        except Exception as e:
+            logger.error(f"Error enriqueciendo datos del programa: {e}")
+            return programa_data
+    
+    def enriquecer_datos_estudiante(self, estudiante_data: Dict) -> Dict:
+        """Enriquecer datos del estudiante con información de pagos"""
+        try:
+            inscripcion_id = estudiante_data.get('inscripcion_id')
+            programa_id = self.programa_id
+            
+            if not inscripcion_id or not programa_id:
+                return estudiante_data
+            
+            # Obtener información del programa
+            resultado = ProgramaModel.obtener_programa(programa_id)
+            if resultado.get('success') and resultado.get('data'):
+                programa = resultado['data']
+                
+                costo_matricula = programa.get('costo_matricula', 0) or 0
+                costo_inscripcion = programa.get('costo_inscripcion', 0) or 0
+                costo_mensualidad = programa.get('costo_mensualidad', 0) or 0
+                numero_cuotas = programa.get('numero_cuotas', 1) or 1
+                
+                costo_total = costo_matricula + costo_inscripcion + (costo_mensualidad * numero_cuotas)
+            else:
+                costo_total = 0
+            
+            # Obtener descuento aplicado a esta inscripción
+            from config.database import Database
+            connection = Database.get_connection()
+            if connection:
+                cursor = connection.cursor()
+                query = "SELECT descuento_aplicado FROM inscripciones WHERE id = %s"
+                cursor.execute(query, (inscripcion_id,))
+                descuento_result = cursor.fetchone()
+                descuento = descuento_result[0] if descuento_result else 0
+                cursor.close()
+                Database.return_connection(connection)
+            else:
+                descuento = 0
+            
+            # Calcular costo con descuento
+            costo_con_descuento = costo_total * (1 - descuento / 100)
+            
+            # Obtener transacciones de esta inscripción
+            transacciones = TransaccionModel.obtener_transacciones_inscripcion(inscripcion_id)
+            
+            # Calcular total pagado (solo transacciones confirmadas)
+            total_pagado = 0
+            for transaccion in transacciones:
+                if transaccion.get('estado') == 'CONFIRMADO':
+                    total_pagado += transaccion.get('monto_final', 0)
+            
+            saldo_pendiente = max(0, costo_con_descuento - total_pagado)
+            
+            # Agregar datos enriquecidos
+            estudiante_data['transacciones'] = transacciones
+            estudiante_data['total_pagado'] = total_pagado
+            estudiante_data['saldo_pendiente'] = saldo_pendiente
+            estudiante_data['descuento_aplicado'] = descuento
+            estudiante_data['costo_total_programa'] = costo_total
+            estudiante_data['costo_con_descuento'] = costo_con_descuento
+            
+            return estudiante_data
+            
+        except Exception as e:
+            logger.error(f"Error enriqueciendo datos del estudiante: {e}")
+            return estudiante_data
+    

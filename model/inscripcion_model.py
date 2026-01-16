@@ -511,6 +511,104 @@ class InscripcionModel:
                 Database.return_connection(connection)
     
     @staticmethod
+    def obtener_programas_inscritos_estudiante(estudiante_id: int) -> List[Dict]:
+        """Obtener todos los programas en los que un estudiante está inscrito"""
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return []
+            
+            cursor = connection.cursor()
+            query = """
+            SELECT 
+                i.id as inscripcion_id,
+                p.id as programa_id,
+                p.codigo,
+                p.nombre,
+                p.costo_total,
+                p.costo_matricula,
+                p.costo_inscripcion,
+                p.costo_mensualidad,
+                p.numero_cuotas,
+                i.estado as estado_inscripcion,
+                i.fecha_inscripcion,
+                i.descuento_aplicado
+            FROM inscripciones i
+            JOIN programas p ON i.programa_id = p.id
+            WHERE i.estudiante_id = %s 
+            AND i.estado NOT IN ('RETIRADO')
+            ORDER BY i.fecha_inscripcion DESC
+            """
+            
+            cursor.execute(query, (estudiante_id,))
+            resultados = cursor.fetchall()
+            
+            programas = []
+            column_names = [desc[0] for desc in cursor.description]
+            
+            for row in resultados:
+                programa = dict(zip(column_names, row))
+                programas.append(programa)
+            
+            cursor.close()
+            Database.return_connection(connection)
+            return programas
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo programas inscritos del estudiante: {e}")
+            return []
+    
+    @staticmethod
+    def obtener_estudiantes_inscritos_programa(programa_id: int) -> List[Dict]:
+        """Obtener todos los estudiantes inscritos en un programa"""
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return []
+            
+            cursor = connection.cursor()
+            query = """
+            SELECT 
+                i.id as inscripcion_id,
+                e.id as estudiante_id,
+                e.ci_numero,
+                e.ci_expedicion,
+                e.nombres,
+                e.apellido_paterno,
+                e.apellido_materno,
+                e.email,
+                e.telefono,
+                i.estado as estado_inscripcion,
+                i.fecha_inscripcion,
+                i.descuento_aplicado
+            FROM inscripciones i
+            JOIN estudiantes e ON i.estudiante_id = e.id
+            WHERE i.programa_id = %s 
+            AND i.estado NOT IN ('RETIRADO')
+            ORDER BY e.apellido_paterno, e.apellido_materno, e.nombres
+            """
+            
+            cursor.execute(query, (programa_id,))
+            resultados = cursor.fetchall()
+            
+            estudiantes = []
+            column_names = [desc[0] for desc in cursor.description]
+            
+            for row in resultados:
+                estudiante = dict(zip(column_names, row))
+                estudiantes.append(estudiante)
+            
+            cursor.close()
+            Database.return_connection(connection)
+            return estudiantes
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo estudiantes inscritos en programa: {e}")
+            return []
+    
+    @staticmethod
     def obtener_detalle_inscripcion(inscripcion_id: int) -> Dict[str, Any]:
         """
         Obtiene detalle completo de una inscripción

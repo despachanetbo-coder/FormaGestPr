@@ -306,8 +306,8 @@ class FileManager:
     
     @staticmethod
     def redimensionar_imagen(ruta_origen: str, ruta_destino: str, 
-                           ancho: int, alto: int, 
-                           calidad: int = 85) -> bool:
+                            ancho: int, alto: int, 
+                            calidad: int = 85) -> bool:
         """
         Redimensionar una imagen
         

@@ -84,3 +84,8 @@ class BaseModel(QObject):
     def eliminar(id: int) -> Dict[str, Any]:
         """Eliminar un registro"""
         raise NotImplementedError("Este método debe ser implementado en la clase hija")
+    
+    @staticmethod
+    def obtener_ruta_de_config(clave: str) -> Optional[str]:
+        """Obtener la ruta del archivo asociado a un registro"""
+        raise NotImplementedError("Este método debe ser implementado en la clase hija")

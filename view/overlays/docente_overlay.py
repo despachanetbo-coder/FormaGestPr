@@ -374,12 +374,24 @@ class DocenteOverlay(BaseOverlay):
             self.especialidad_input, self.telefono_input, self.email_input
         ]
         
-        for campo in campos:
-            campo.textChanged.connect(self._marcar_modificado)
+        # Conectar botón guardar
+        if hasattr(self, 'btn_guardar'):
+            self.btn_guardar.clicked.disconnect()  # Desconectar conexiones previas
+            self.btn_guardar.clicked.connect(self._procesar_guardado)
         
         # Conectar botón cancelar
         if hasattr(self, 'btn_cancelar'):
             self.btn_cancelar.clicked.connect(self.close_overlay)
+        
+        # Detectar cambios
+        campos = [
+            self.ci_numero_input, self.nombres_input, self.apellido_paterno_input,
+            self.apellido_materno_input, self.titulo_profesional_input,
+            self.especialidad_input, self.telefono_input, self.email_input
+        ]
+
+        for campo in campos:
+            campo.textChanged.connect(self._marcar_modificado)
     
     # ===== MÉTODOS AUXILIARES =====
     
@@ -387,6 +399,50 @@ class DocenteOverlay(BaseOverlay):
         """Marcar que se han realizado cambios"""
         if self.modo != "lectura":
             pass  # Podrías implementar lógica de dirty tracking aquí
+    
+    def _procesar_guardado(self):
+        """Procesar la acción de guardar/actualizar docente"""
+        # Validar formulario
+        valido, errores = self.validar_formulario()
+        
+        if not valido:
+            mensaje = "Por favor corrija los siguientes errores:\n\n" + "\n".join(errores)
+            self.mostrar_mensaje("Error de validación", mensaje, "error")
+            return
+        
+        try:
+            # Obtener datos del formulario
+            datos = self.obtener_datos()
+            
+            # Determinar si es creación o actualización
+            if self.modo == "nuevo":
+                # Crear nuevo docente
+                nuevo_id = DocenteModel.crear_docente(datos)
+                if nuevo_id:
+                    datos['id'] = nuevo_id
+                    self.mostrar_mensaje("Éxito", "Docente creado exitosamente", "success")
+                    self.docente_creado.emit(datos)
+                    self.close_overlay()
+                else:
+                    self.mostrar_mensaje("Error", "No se pudo crear el docente", "error")
+                
+            elif self.modo == "editar" and self.docente_id:
+                # Actualizar docente existente
+                datos['id'] = self.docente_id
+                if DocenteModel.actualizar_docente(self.docente_id, datos):
+                    self.mostrar_mensaje("Éxito", "Docente actualizado exitosamente", "success")
+                    self.docente_actualizado.emit(datos)
+                    self.close_overlay()
+                else:
+                    self.mostrar_mensaje("Error", "No se pudo actualizar el docente", "error")
+                
+            elif self.modo == "lectura":
+                # En modo lectura, solo cerrar
+                self.close_overlay()
+            
+        except Exception as e:
+            logger.error(f"Error procesando guardado: {e}")
+            self.mostrar_mensaje("Error", f"Error al procesar: {str(e)}", "error")
     
     # ===== IMPLEMENTACIÓN DE MÉTODOS BASE =====
     
@@ -893,7 +949,19 @@ class DocenteOverlay(BaseOverlay):
             else:  # modo == "nuevo"
                 self.btn_guardar.setText("💾 GUARDAR DOCENTE")
                 self.btn_guardar.setVisible(True)
+            
+            # Re-conectar botón guardar con la lógica adecuada
+            if hasattr(self, 'btn_guardar'):
+                try:
+                    self.btn_guardar.clicked.disconnect()
+                except:
+                    pass  # No importa si no estaba conectado
                 
+                if modo == "lectura":
+                    self.btn_guardar.clicked.connect(self.close_overlay)
+                else:
+                    self.btn_guardar.clicked.connect(self._procesar_guardado)
+            
             # Habilitar/deshabilitar campos
             es_solo_lectura = solo_lectura or modo == "lectura"
             campos = [
@@ -909,7 +977,7 @@ class DocenteOverlay(BaseOverlay):
                 campo.setEnabled(not es_solo_lectura)
                 if hasattr(campo, 'setReadOnly'):
                     campo.setReadOnly(es_solo_lectura)
-                    
+            
             # Llamar al método base
             super().show_form(es_solo_lectura)
             

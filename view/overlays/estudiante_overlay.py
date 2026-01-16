@@ -84,76 +84,76 @@ class EstudianteOverlay(BaseOverlay):
                 background-color: transparent;
             }
         """)
-
+        
         # Widget contenedor del contenido
         content_widget = QWidget()
         content_widget.setObjectName("contentWidget")
         content_layout = QVBoxLayout(content_widget)
         content_layout.setSpacing(15)
-
+        
         # ===== FILA 1: Datos Personales + Fotografía =====
         fila1_layout = QHBoxLayout()
         fila1_layout.setSpacing(20)
         fila1_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Contenedor para datos personales (70% del ancho)
         datos_container = QWidget()
         datos_container_layout = QVBoxLayout(datos_container)
         datos_container_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Sección de datos personales
         self.setup_datos_personales_section(datos_container_layout)
-
+        
         # Contenedor para foto (30% del ancho)
         foto_container = QWidget()
         foto_container_layout = QVBoxLayout(foto_container)
         foto_container_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Sección de foto
         self.setup_foto_section(foto_container_layout)
-
+        
         # Agregar a la fila 1
         fila1_layout.addWidget(datos_container, stretch=7)  # 70%
         fila1_layout.addWidget(foto_container, stretch=3)   # 30%
-
+        
         content_layout.addLayout(fila1_layout)
-
+        
         # ===== FILA 2: Contacto + Información Académica =====
         fila2_layout = QHBoxLayout()
         fila2_layout.setSpacing(20)
         fila2_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Contenedor para contacto (50% del ancho)
         contacto_container = QWidget()
         contacto_container_layout = QVBoxLayout(contacto_container)
         contacto_container_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Sección de contacto
         self.setup_contacto_section(contacto_container_layout)
-
+        
         # Contenedor para información académica (50% del ancho)
         academica_container = QWidget()
         academica_container_layout = QVBoxLayout(academica_container)
         academica_container_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Sección de información académica/profesional
         self.setup_info_academica_section(academica_container_layout)
-
+        
         # Agregar a la fila 2
         fila2_layout.addWidget(contacto_container, stretch=5)  # 50%
         fila2_layout.addWidget(academica_container, stretch=5)  # 50%
-
+        
         content_layout.addLayout(fila2_layout)
-
+        
         # Espaciador
         content_layout.addStretch()
-
+        
         # Configurar scroll area
         scroll_area.setWidget(content_widget)
-
+        
         # Agregar al área de contenido principal
         self.content_layout.addWidget(scroll_area)
-
+        
         # Personalizar botones según modo
         self.btn_guardar.setText("💾 GUARDAR ESTUDIANTE")
         self.btn_cancelar.setText("❌ CANCELAR")
@@ -334,33 +334,33 @@ class EstudianteOverlay(BaseOverlay):
         # Grupo de contacto
         contacto_group = QGroupBox("📞 Información de Contacto")
         contacto_group.setObjectName("contactoGroup")
-
+        
         contacto_layout = QGridLayout(contacto_group)
         contacto_layout.setSpacing(15)
         contacto_layout.setColumnStretch(1, 1)
-
+        
         # Fila 1: Teléfono
         contacto_layout.addWidget(QLabel("Teléfono:"), 0, 0)
         self.telefono_input = QLineEdit()
         self.telefono_input.setPlaceholderText("Ej: 77712345")
         self.telefono_input.setMaximumWidth(200)
         contacto_layout.addWidget(self.telefono_input, 0, 1)
-
+        
         # Fila 2: Email
         contacto_layout.addWidget(QLabel("Email:"), 1, 0)
         self.email_input = QLineEdit()
         self.email_input.setPlaceholderText("Ej: estudiante@email.com")
         contacto_layout.addWidget(self.email_input, 1, 1, 1, 3)
-
+        
         # Fila 3: Dirección
         contacto_layout.addWidget(QLabel("Dirección:"), 2, 0)
         self.direccion_input = QTextEdit()
         self.direccion_input.setMaximumHeight(40)
         self.direccion_input.setPlaceholderText("Ingrese la dirección completa...")
         contacto_layout.addWidget(self.direccion_input, 2, 1, 1, 3)
-
+        
         parent_layout.addWidget(contacto_group)
-
+    
     def setup_info_academica_section(self, parent_layout):
         """Configurar sección de información académica/profesional"""
         # Grupo de información académica
@@ -508,7 +508,7 @@ class EstudianteOverlay(BaseOverlay):
             # Eliminar el widget
             self.botones_container.deleteLater()
             self.botones_container = None
-
+        
         self.botones_visualizacion_creados = False
         logger.debug("✅ Botones de visualización eliminados")
     
@@ -585,16 +585,16 @@ class EstudianteOverlay(BaseOverlay):
         botones_layout.addWidget(btn_ver_pagos)
         botones_layout.addWidget(btn_editar)
         botones_layout.addStretch()
-
+        
         # Crear widget contenedor
         self.botones_container = QWidget()
         self.botones_container.setObjectName("botonesVisualizacionContainer")
         self.botones_container.setLayout(botones_layout)
-
+        
         # Insertar antes del footer (penúltima posición)
         footer_index = self.content_layout.count() - 1
         self.content_layout.insertWidget(footer_index, self.botones_container)
-
+        
         logger.debug("✅ Botones de visualización creados")
     
     def habilitar_campos(self, habilitar: bool):
@@ -701,10 +701,10 @@ class EstudianteOverlay(BaseOverlay):
         # Resetear estudiante_id y datos
         self.estudiante_id = None
         self.datos_originales = {}
-
+        
         # Eliminar botones de visualización si existen
         self.eliminar_botones_visualizacion()
-
+        
         # Restaurar visibilidad del botón guardar
         self.btn_guardar.setVisible(True)
     
@@ -882,17 +882,11 @@ class EstudianteOverlay(BaseOverlay):
             dict: Resultado de la operación
         """
         try:
-            logger.info("=" * 80)
-            logger.info("DEBUG - crear_estudiante: Iniciando proceso completo")
-            logger.info(f"DEBUG - Foto temporal: {datos.get('foto_temp_path')}")
-            
             # 1. Primero copiar la foto si existe
             ruta_foto = None
             if datos.get('foto_temp_path'):
                 ci_numero = datos['ci_numero']
                 ci_expedicion = datos['ci_expedicion']
-                
-                logger.info(f"DEBUG - Copiando foto para CI: {ci_numero} {ci_expedicion}")
                 
                 # Copiar foto al directorio de fotos
                 exito, mensaje, ruta_foto = FileManager.copiar_foto_estudiante(
@@ -930,8 +924,6 @@ class EstudianteOverlay(BaseOverlay):
             else:
                 logger.info("DEBUG - No hay ruta de foto para añadir")
             
-            logger.info(f"DEBUG - Datos finales para BD: {datos_bd}")
-            
             # 4. Usar el controlador para crear el estudiante
             resultado = EstudianteController.crear_estudiante(datos_bd)
             
@@ -942,7 +934,6 @@ class EstudianteOverlay(BaseOverlay):
                 # 5. Si la foto se copió pero no se pudo incluir en la creación,
                 # intentar actualizar como fallback
                 if ruta_foto and not datos_bd.get('fotografia_url'):
-                    logger.info(f"DEBUG - Fallback: Actualizando foto para estudiante {estudiante_id}")
                     EstudianteModel.actualizar_estudiante(estudiante_id, {
                         'fotografia_url': ruta_foto
                     })

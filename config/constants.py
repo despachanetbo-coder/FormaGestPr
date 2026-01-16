@@ -70,6 +70,25 @@ class EstadoEstudiante(Enum):
             "RETIRADO": "#7f8c8d"     # Gris
         }
 
+class EstadoTransaccion(Enum):
+    """Estados de transacciones de pago"""
+    REGISTRADO = "REGISTRADO"
+    CONFIRMADO = "CONFIRMADO"
+    PENDIENTE = "PENDIENTE"
+    ANULADO = "ANULADO"
+    RECHAZADO = "RECHAZADO"
+    
+    @classmethod
+    def get_display_names(cls):
+        """Obtener nombres para mostrar en UI"""
+        return {
+            "REGISTRADO": "Registrado",
+            "CONFIRMADO": "Confirmado",
+            "PENDIENTE": "Pendiente",
+            "ANULADO": "Anulado",
+            "RECHAZADO": "Rechazado"
+        }
+
 class FormaPago(Enum):
     """Formas de pago"""
     EFECTIVO = "EFECTIVO"
