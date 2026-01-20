@@ -5,7 +5,7 @@ Siguiendo el patrón establecido en usuarios_model.py
 """
 import logging
 import json
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
 from datetime import date, datetime
 from config.database import Database
 
@@ -74,7 +74,7 @@ class InscripcionModel:
         programa_id: int,
         descuento_aplicado: float = 0.0,
         observaciones: Optional[str] = None,
-        fecha_inscripcion: Optional[date] = None
+        fecha_inscripcion: Union[str, datetime, date, None] = None
     ) -> Dict[str, Any]:
         """
         Crea una nueva inscripción
@@ -98,10 +98,24 @@ class InscripcionModel:
             
             cursor = connection.cursor()
             
-            # Convertir fecha a string si se proporciona
-            fecha_str = fecha_inscripcion.isoformat() if fecha_inscripcion else None
+            # Manejar la fecha de inscripción
+            fecha_str = None
+            if fecha_inscripcion:
+                if isinstance(fecha_inscripcion, str):
+                    # Ya es string, usar directamente o validar formato
+                    fecha_str = fecha_inscripcion
+                    # Si el string viene en formato QDate (dd/MM/yyyy), convertirlo
+                    if '/' in fecha_str:
+                        try:
+                            fecha_dt = datetime.strptime(fecha_str, '%d/%m/%Y')
+                            fecha_str = fecha_dt.strftime('%Y-%m-%d')
+                        except ValueError:
+                            # Si no se puede convertir, usar como está
+                            pass
+                elif isinstance(fecha_inscripcion, (datetime, date)):
+                    fecha_str = fecha_inscripcion.strftime('%Y-%m-%d')
             
-            cursor.callproc('sp_crear_inscripcion', (
+            cursor.callproc('fn_crear_inscripcion', (
                 estudiante_id,
                 programa_id,
                 descuento_aplicado,

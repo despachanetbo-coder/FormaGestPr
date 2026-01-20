@@ -128,8 +128,8 @@ class TransaccionModel(BaseModel):
                 SELECT programa_id FROM inscripciones WHERE id = %s
             )
             GROUP BY t.id, t.numero_transaccion, t.fecha_pago, t.monto_final, 
-                     t.forma_pago, t.numero_comprobante, t.estado, 
-                     t.observaciones, t.banco_origen, t.cuenta_origen
+                    t.forma_pago, t.numero_comprobante, t.estado, 
+                    t.observaciones, t.banco_origen, t.cuenta_origen
             ORDER BY t.fecha_pago DESC
             """
             
@@ -548,6 +548,9 @@ class TransaccionModel(BaseModel):
         Returns:
             Ruta del archivo o None si no existe
         """
+        from config.database import Database
+        connection = None
+        cursor = None
         try:
             connection = Database.get_connection()
             if not connection:
@@ -561,3 +564,153 @@ class TransaccionModel(BaseModel):
         except Exception as e:
             logger.error(f"Error obteniendo ruta de configuración: {e}")
             return None
+        finally:
+            try:
+                if cursor is not None:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection is not None:
+                Database.return_connection(connection)
+
+    # En el archivo model/transaccion_model.py, agregar:
+
+    @classmethod
+    def crear_transaccion_completa(cls, inscripcion_id: int, estudiante_id: int, 
+                                    programa_id: int, monto_final: float, forma_pago: str,
+                                    origen: Optional[str], estado: str, fecha_pago: str,
+                                    detalles: List[Dict], documentos: List[Dict]) -> Dict:
+        """
+        Crear una transacción completa con todos sus detalles y documentos
+
+        Args:
+            inscripcion_id: ID de la inscripción
+            estudiante_id: ID del estudiante
+            programa_id: ID del programa
+            monto_final: Monto total de la transacción
+            forma_pago: Forma de pago
+            origen: Origen/referencia del pago
+            estado: Estado de la transacción
+            fecha_pago: Fecha del pago
+            detalles: Lista de detalles de la transacción
+            documentos: Lista de documentos adjuntos
+
+        Returns:
+            Diccionario con resultado de la operación
+        """
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return {'exito': False, 'mensaje': 'Error de conexión a la base de datos'}
+
+            cursor = connection.cursor()
+
+            # Generar número de transacción
+            numero_transaccion = cls.generar_numero_transaccion()
+
+            # 1. Insertar transacción principal
+            query_transaccion = """
+            INSERT INTO transacciones (
+                numero_transaccion, estudiante_id, programa_id, inscripcion_id,
+                monto_final, forma_pago, origen, estado, fecha_pago, 
+                fecha_registro, usuario_registro
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+            RETURNING id
+            """
+
+            # Obtener usuario actual (ajustar según tu implementación)
+            usuario = "Administrador"  # Default user if no session available
+
+            cursor.execute(query_transaccion, (
+                numero_transaccion, estudiante_id, programa_id, inscripcion_id,
+                monto_final, forma_pago, origen, estado, fecha_pago, usuario
+            ))
+
+            transaccion_id = cursor.fetchone()[0]
+
+            # 2. Insertar detalles de la transacción
+            if detalles:
+                query_detalle = """
+                INSERT INTO transaccion_detalles (
+                    transaccion_id, concepto, descripcion, 
+                    cantidad, precio_unitario, subtotal
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """
+
+                for detalle in detalles:
+                    cursor.execute(query_detalle, (
+                        transaccion_id,
+                        detalle.get('concepto', ''),
+                        detalle.get('descripcion', ''),
+                        detalle.get('cantidad', 1),
+                        detalle.get('precio_unitario', 0),
+                        detalle.get('subtotal', 0)
+                    ))
+
+            # 3. Manejar documentos (si los hay)
+            # Nota: Esto depende de cómo manejes archivos en tu sistema
+            # Por ahora, solo registrar referencia en base de datos
+            if documentos:
+                query_documento = """
+                INSERT INTO transaccion_documentos (
+                    transaccion_id, nombre_archivo, ruta_archivo, 
+                    tipo_archivo, fecha_subida
+                ) VALUES (%s, %s, %s, %s, NOW())
+                """
+
+                for doc in documentos:
+                    cursor.execute(query_documento, (
+                        transaccion_id,
+                        doc.get('nombre', ''),
+                        doc.get('ruta', ''),
+                        doc.get('tipo', '')
+                    ))
+
+            # 4. Actualizar estado de la inscripción si el pago cubre todo
+            query_actualizar_inscripcion = """
+            UPDATE inscripciones 
+            SET estado = 'INSCRITO'
+            WHERE id = %s 
+            AND estado = 'PREINSCRITO'
+            """
+            cursor.execute(query_actualizar_inscripcion, (inscripcion_id,))
+
+            connection.commit()
+            cursor.close()
+            Database.return_connection(connection)
+
+            return {
+                'exito': True,
+                'transaccion_id': transaccion_id,
+                'numero_transaccion': numero_transaccion,
+                'mensaje': 'Transacción registrada exitosamente'
+            }
+
+        except Exception as e:
+            logger.error(f"Error creando transacción completa: {e}")
+            if connection:
+                connection.rollback()
+                cursor.close()
+                Database.return_connection(connection)
+
+            return {
+                'exito': False,
+                'mensaje': f'Error al registrar transacción: {str(e)}'
+            }
+
+    @classmethod
+    def generar_numero_transaccion(cls) -> str:
+        """Generar número de transacción único"""
+        try:
+            import random
+
+            fecha = datetime.now().strftime('%Y%m%d')
+            secuencia = str(random.randint(1000, 9999))
+
+            return f"TRX-{fecha}-{secuencia}"
+
+        except Exception as e:
+            logger.error(f"Error generando número de transacción: {e}")
+            return f"TRX-{int(datetime.now().timestamp())}"
