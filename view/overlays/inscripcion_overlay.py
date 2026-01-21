@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QSplitter, QCheckBox, QDoubleSpinBox, QSpinBox, QTabWidget, QTextBrowser,
     QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
     QAbstractItemView, QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem,
-    QDialog, QDialogButtonBox
+    QDialog, QDialogButtonBox, QLayout
 )
-from PySide6.QtCore import Qt, QDate, QTimer, QSize, Signal, QEvent
+from PySide6.QtCore import Qt, QDate, QTimer, QSize, Signal, QEvent, QFile
 from PySide6.QtGui import (
     QFont, QPixmap, QIcon, QIntValidator, QDoubleValidator, QImage, 
     QPixmap, QImage, QColor, QBrush
@@ -82,6 +82,9 @@ class InscripcionOverlay(BaseOverlay):
         self.programas_disponibles: List[Dict] = []
         self.estudiantes_disponibles: List[Dict] = []
         
+        # CACHÉ para estudiantes encontrados en búsqueda
+        self.estudiantes_encontrados_cache: List[Dict] = []
+        
         # ATRIBUTOS NUEVOS QUE NECESITAMOS AGREGAR:
         self.splitter_principal: Optional[QSplitter] = None
         self.seccion_transaccion_frame: Optional[QFrame] = None
@@ -96,6 +99,8 @@ class InscripcionOverlay(BaseOverlay):
         self.seccion_detalles_documentos: Optional[QFrame] = None
         self.seccion_resumen_acciones: Optional[QFrame] = None
         self.historial_table: Optional[QTableWidget] = None
+        
+        self.cargar_estilos()
         
         ## Configurar UI específica
         #self.setup_ui_especifica()
@@ -281,6 +286,123 @@ class InscripcionOverlay(BaseOverlay):
         
         scroll_widget.setWidget(main_widget)
         self.content_layout.addWidget(scroll_widget, 1)
+    
+    def cargar_estilos(self):
+        """Carga los estilos desde el archivo overlays.qss - CON ESTILOS GLOBALES MEJORADOS"""
+        try:
+            # Ruta al archivo de estilos
+            ruta_estilos = os.path.join('view', 'styles', 'overlays.qss')
+
+            if not os.path.exists(ruta_estilos):
+                print(f"⚠️ Archivo no encontrado: {ruta_estilos}")
+                # Crear directorio si no existe
+                os.makedirs(os.path.dirname(ruta_estilos), exist_ok=True)
+
+                # Aplicar estilos básicos por defecto
+                self.setStyleSheet("""
+                    /* Estilos globales para mejorar visibilidad */
+                    QLabel {
+                        padding: 4px 0px;
+                    }
+
+                    QLabel[important="true"] {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #2c3e50;
+                        padding: 6px 0px;
+                    }
+
+                    QDateEdit, QComboBox, QLineEdit, QDoubleSpinBox {
+                        min-height: 40px;
+                        padding: 8px;
+                        font-size: 14px;
+                    }
+
+                    .form-label {
+                        font-weight: bold;
+                        color: #2c3e50;
+                        font-size: 13px;
+                        padding: 5px 0px;
+                        min-height: 30px;
+                    }
+
+                    .form-value {
+                        padding: 10px;
+                        min-height: 40px;
+                        font-size: 14px;
+                    }
+                """)
+                return
+
+            # Método 1: Usar Qt (forma correcta para PySide6)
+            archivo = QFile(ruta_estilos)
+            if archivo.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
+                from PySide6.QtCore import QTextStream
+                stream = QTextStream(archivo)
+
+                # En PySide6, puedes establecer la codificación así:
+                # stream.setEncoding(QTextStream.Encoding.Utf8)
+                # O simplemente confiar en la predeterminada (UTF-8 en versiones recientes)
+
+                estilos = stream.readAll()
+                archivo.close()
+
+                # Agregar estilos globales adicionales
+                estilos_extra = """
+                /* Estilos adicionales para mejorar altura y visibilidad */
+                QLabel {
+                    padding: 4px 0px;
+                }
+
+                QLabel.form-header {
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #2c3e50;
+                    padding: 6px 0px;
+                    min-height: 30px;
+                }
+
+                QDateEdit, QComboBox, QLineEdit, QDoubleSpinBox {
+                    min-height: 40px;
+                    padding: 8px;
+                    font-size: 14px;
+                }
+
+                .field-label {
+                    font-weight: bold;
+                    color: #2c3e50;
+                    font-size: 13px;
+                    padding: 5px 0px;
+                    min-height: 30px;
+                }
+
+                .field-value {
+                    padding: 10px;
+                    min-height: 40px;
+                    font-size: 14px;
+                }
+
+                .highlight-label {
+                    padding: 12px;
+                    min-height: 50px;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                """
+
+                # Combinar estilos
+                estilos_completos = estilos + estilos_extra
+
+                # Aplicar estilos al formulario
+                self.setStyleSheet(estilos_completos)
+                print(f"✅ Estilos cargados desde: {ruta_estilos}")
+            else:
+                print(f"❌ No se pudo abrir el archivo: {ruta_estilos}")
+
+        except Exception as e:
+            print(f"❌ Error al cargar estilos: {e}")
+            import traceback
+            traceback.print_exc()
     
     # ===== MÉTODOS DE CREACIÓN DE COMPONENTES UI =====
     
@@ -938,6 +1060,8 @@ class InscripcionOverlay(BaseOverlay):
         
         return main_frame
     
+    # Luego, más adelante, define crear_grupo_formulario_inscripcion
+    
     def crear_grupo_formulario_inscripcion(self):
         """Crear grupo para el formulario de inscripción/transacción - VERSIÓN CORREGIDA"""
         grupo = QGroupBox("📋 FORMULARIO DE INSCRIPCIÓN")
@@ -960,41 +1084,36 @@ class InscripcionOverlay(BaseOverlay):
             }
         """)
 
-        # Layout principal del grupo - USAR QVBoxLayout para organización vertical
+        # Layout principal del grupo
         grupo_layout = QVBoxLayout(grupo)
-        grupo_layout.setSpacing(20)
+        grupo_layout.setSpacing(15)
         grupo_layout.setContentsMargins(20, 25, 20, 20)
 
         # === SECCIÓN 1: DATOS BÁSICOS DE INSCRIPCIÓN ===
         self.seccion_datos_basicos = self.crear_seccion_datos_basicos()
         grupo_layout.addWidget(self.seccion_datos_basicos)
 
-        # Separador 1
-        separador1 = self.crear_separador("👇 PASO 2: REGISTRAR TRANSACCIÓN")
-        grupo_layout.addWidget(separador1)
-
         # === SECCIÓN 2: REGISTRO DE TRANSACCIÓN ===
-        # CORRECCIÓN: Crear frame de transacción correctamente
+        # Separador 1 - GUARDAR REFERENCIA
+        self.separador_paso2 = self.crear_separador("👇 PASO 2: REGISTRAR TRANSACCIÓN")
+        grupo_layout.addWidget(self.separador_paso2)
+
         self.seccion_transaccion_frame = QFrame()
         self.seccion_transaccion_frame.setObjectName("seccionTransaccionFrame")
-        self.seccion_transaccion_frame.setVisible(False)
         transaccion_layout = QVBoxLayout(self.seccion_transaccion_frame)
         transaccion_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Agregar contenido de transacción
         transaccion_content = self.crear_seccion_transaccion()
         transaccion_layout.addWidget(transaccion_content)
 
         grupo_layout.addWidget(self.seccion_transaccion_frame)
 
-        # Separador 2
-        separador2 = self.crear_separador("👇 PASO 3: DETALLES Y DOCUMENTOS")
-        grupo_layout.addWidget(separador2)
-
         # === SECCIÓN 3: DETALLES Y DOCUMENTOS ===
-        # CORRECCIÓN: Crear frame de detalles correctamente
+        # Separador 2 - GUARDAR REFERENCIA
+        self.separador_paso3 = self.crear_separador("👇 PASO 3: DETALLES Y DOCUMENTOS")
+        grupo_layout.addWidget(self.separador_paso3)
+
         self.seccion_detalles_documentos_frame = QFrame()
-        self.seccion_detalles_documentos_frame.setVisible(False)
         detalles_layout = QVBoxLayout(self.seccion_detalles_documentos_frame)
         detalles_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1003,21 +1122,18 @@ class InscripcionOverlay(BaseOverlay):
 
         grupo_layout.addWidget(self.seccion_detalles_documentos_frame)
 
-        # Separador 3
-        separador3 = self.crear_separador("👇 RESUMEN Y ACCIONES")
-        grupo_layout.addWidget(separador3)
-
         # === SECCIÓN 4: RESUMEN Y BOTONES ===
-        # CORRECCIÓN: Crear sección de resumen
+        # Separador 3 - GUARDAR REFERENCIA
+        self.separador_resumen = self.crear_separador("👇 RESUMEN Y ACCIONES")
+        grupo_layout.addWidget(self.separador_resumen)
+
         self.seccion_resumen_frame = QFrame()
         resumen_layout = QVBoxLayout(self.seccion_resumen_frame)
         resumen_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Resumen financiero
         resumen_financiero = self.crear_resumen_financiero()
         resumen_layout.addWidget(resumen_financiero)
 
-        # Botones de acción
         acciones_frame = self.crear_acciones_formulario()
         resumen_layout.addWidget(acciones_frame)
 
@@ -1026,16 +1142,95 @@ class InscripcionOverlay(BaseOverlay):
         # Espaciador final
         grupo_layout.addStretch()
 
+        # Configurar visibilidad inicial
+        self.configurar_visibilidad_inicial()
+
+        grupo.setMinimumHeight(800)
+
         return grupo
     
+    def configurar_visibilidad_inicial(self):
+        """Configurar visibilidad inicial de todos los elementos"""
+        # Por defecto, ocultar secciones avanzadas y separadores
+        if hasattr(self, 'separador_paso2'):
+            self.separador_paso2.setVisible(False)
+        if hasattr(self, 'separador_paso3'):
+            self.separador_paso3.setVisible(False)
+        if hasattr(self, 'separador_resumen'):
+            self.separador_resumen.setVisible(False)
+
+        if hasattr(self, 'seccion_transaccion_frame'):
+            if not self.seccion_transaccion_frame:
+                return
+            self.seccion_transaccion_frame.setVisible(False)
+        if hasattr(self, 'seccion_detalles_documentos_frame'):
+            self.seccion_detalles_documentos_frame.setVisible(False)
+        # Solo la sección resumen es visible inicialmente
+        if hasattr(self, 'seccion_resumen_frame'):
+            self.seccion_resumen_frame.setVisible(True)
+
+    def mostrar_separador(self, numero: int, visible: bool):
+        """Mostrar u ocultar separadores específicos"""
+        try:
+            # Verificar que seccion_datos_basicos existe y no es None
+            if not hasattr(self, 'seccion_datos_basicos') or self.seccion_datos_basicos is None:
+                logger.warning("seccion_datos_basicos no está inicializado")
+                return
+
+            # Obtener el widget padre y verificar que sea QWidget
+            grupo_formulario = self.seccion_datos_basicos.parent()
+            if not grupo_formulario or not isinstance(grupo_formulario, QWidget):
+                logger.warning(f"No se pudo obtener el widget padre del tipo correcto: {type(grupo_formulario)}")
+                return
+
+            # Obtener el layout y verificar que sea QLayout
+            layout = grupo_formulario.layout()
+            if not layout or not isinstance(layout, QLayout):
+                logger.warning(f"No se pudo obtener el layout del tipo correcto: {type(layout)}")
+                return
+
+            # Buscar los separadores
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if not item:
+                    continue
+
+                widget = item.widget()
+                if not widget or not isinstance(widget, QFrame):
+                    continue
+                
+                # Verificar si es un separador por el texto
+                for child in widget.findChildren(QLabel):
+                    texto = child.text()
+                    if not texto:
+                        continue
+
+                    if numero == 1 and "PASO 2" in texto:
+                        widget.setVisible(visible)
+                        logger.debug(f"Separador PASO 2 {'visible' if visible else 'oculto'}")
+                        return
+                    elif numero == 2 and "PASO 3" in texto:
+                        widget.setVisible(visible)
+                        logger.debug(f"Separador PASO 3 {'visible' if visible else 'oculto'}")
+                        return
+                    elif numero == 3 and "RESUMEN Y ACCIONES" in texto:
+                        widget.setVisible(visible)
+                        logger.debug(f"Separador RESUMEN Y ACCIONES {'visible' if visible else 'oculto'}")
+                        return
+
+        except Exception as e:
+            logger.error(f"Error controlando separador {numero}: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def crear_resumen_financiero(self):
-        """Crear sección de resumen financiero"""
+        """Crear sección de resumen financiero - VERSIÓN MEJORADA"""
         frame = QFrame()
         frame.setStyleSheet("""
             QFrame {
                 background-color: #f8f9fa;
                 border-radius: 8px;
-                padding: 15px;
+                padding: 20px;  # MODIFICADO: de 15px a 20px
                 border: 1px solid #ddd;
             }
         """)
@@ -1046,21 +1241,24 @@ class InscripcionOverlay(BaseOverlay):
         total_label = QLabel("💰 TOTAL A PAGAR:")
         total_label.setStyleSheet("""
             font-weight: bold;
-            font-size: 16px;
+            font-size: 18px;  # MODIFICADO: de 16px a 18px
             color: #2c3e50;
+            padding: 8px 0px;  # AÑADIDO: padding vertical
+            min-height: 50px;  # AÑADIDO: altura mínima
         """)
         layout.addWidget(total_label)
         
         self.resumen_monto_label = QLabel("0.00 Bs")
         self.resumen_monto_label.setStyleSheet("""
             font-weight: bold;
-            font-size: 20px;
+            font-size: 24px;  # MODIFICADO: de 20px a 24px
             color: #e74c3c;
-            padding: 8px 15px;
+            padding: 15px 20px;  # MODIFICADO: de 8px 15px a 15px 20px
             background-color: white;
-            border-radius: 6px;
+            border-radius: 8px;  # MODIFICADO: de 6px a 8px
             border: 2px solid #e74c3c;
-            min-width: 150px;
+            min-width: 180px;    # MODIFICADO: de 150px a 180px
+            min-height: 60px;    # AÑADIDO: altura mínima
             text-align: center;
         """)
         layout.addWidget(self.resumen_monto_label)
@@ -1070,7 +1268,7 @@ class InscripcionOverlay(BaseOverlay):
         return frame
     
     def crear_seccion_datos_basicos(self):
-        """Crear sección de datos básicos de la inscripción"""
+        """Crear sección de datos básicos de la inscripción - VERSIÓN MEJORADA"""
         frame = QFrame()
         frame.setStyleSheet("""
             QFrame {
@@ -1098,11 +1296,17 @@ class InscripcionOverlay(BaseOverlay):
         # Grid para información
         info_grid = QGridLayout()
         info_grid.setSpacing(15)
-        info_grid.setVerticalSpacing(20)
+        info_grid.setVerticalSpacing(20)  # Aumentar espaciado vertical
         
         # Fila 1: Estudiante
         lbl_estudiante = QLabel("👤 ESTUDIANTE:")
-        lbl_estudiante.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_estudiante.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_estudiante.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_estudiante, 0, 0)
         
         self.estudiante_nombre_form_label = QLabel()
@@ -1110,16 +1314,23 @@ class InscripcionOverlay(BaseOverlay):
             font-weight: bold;
             font-size: 14px;
             color: #2c3e50;
-            padding: 8px 12px;
+            padding: 10px 12px;  # MODIFICADO: aumentar padding
             background-color: white;
             border-radius: 6px;
             border: 1px solid #bdc3c7;
+            min-height: 40px;  # AÑADIDO: altura mínima
         """)
         info_grid.addWidget(self.estudiante_nombre_form_label, 0, 1, 1, 3)
         
         # Fila 2: Programa
         lbl_programa = QLabel("📚 PROGRAMA:")
-        lbl_programa.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_programa.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_programa.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_programa, 1, 0)
         
         self.programa_nombre_form_label = QLabel()
@@ -1127,27 +1338,34 @@ class InscripcionOverlay(BaseOverlay):
             font-weight: bold;
             font-size: 14px;
             color: #2c3e50;
-            padding: 8px 12px;
+            padding: 10px 12px;  # MODIFICADO: aumentar padding
             background-color: white;
             border-radius: 6px;
             border: 1px solid #bdc3c7;
+            min-height: 40px;  # AÑADIDO: altura mínima
         """)
         info_grid.addWidget(self.programa_nombre_form_label, 1, 1, 1, 3)
         
         # Fila 3: Fecha y Estado
         lbl_fecha = QLabel("📅 FECHA INSCRIPCIÓN:")
-        lbl_fecha.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_fecha.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_fecha.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_fecha, 2, 0)
         
         self.fecha_inscripcion_date = QDateEdit()
         self.fecha_inscripcion_date.setCalendarPopup(True)
         self.fecha_inscripcion_date.setDate(QDate.currentDate())
         self.fecha_inscripcion_date.setDisplayFormat("dd/MM/yyyy")
-        self.fecha_inscripcion_date.setMinimumHeight(30)
+        self.fecha_inscripcion_date.setMinimumHeight(40)  # MODIFICADO: de 30 a 40
         self.fecha_inscripcion_date.setStyleSheet("""
             QDateEdit {
-                font-size: 13px;
-                padding: 8px;
+                font-size: 14px;  # MODIFICADO: de 13px a 14px
+                padding: 10px;    # MODIFICADO: de 8px a 10px
                 border: 1px solid #bdc3c7;
                 border-radius: 6px;
                 background-color: white;
@@ -1155,7 +1373,7 @@ class InscripcionOverlay(BaseOverlay):
             QDateEdit::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 25px;
+                width: 30px;      # MODIFICADO: de 25px a 30px
                 border-left-width: 1px;
                 border-left-color: darkgray;
                 border-left-style: solid;
@@ -1166,16 +1384,22 @@ class InscripcionOverlay(BaseOverlay):
         info_grid.addWidget(self.fecha_inscripcion_date, 2, 1)
         
         lbl_estado = QLabel("📊 ESTADO:")
-        lbl_estado.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_estado.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_estado.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_estado, 2, 2)
         
         self.estado_inscripcion_combo = QComboBox()
         self.estado_inscripcion_combo.addItems(["PREINSCRITO", "INSCRITO", "EN_CURSO"])
-        self.estado_inscripcion_combo.setMinimumHeight(30)
+        self.estado_inscripcion_combo.setMinimumHeight(40)  # MODIFICADO: de 30 a 40
         self.estado_inscripcion_combo.setStyleSheet("""
             QComboBox {
-                font-size: 13px;
-                padding: 8px;
+                font-size: 14px;      # MODIFICADO: de 13px a 14px
+                padding: 10px;        # MODIFICADO: de 8px a 10px
                 border: 1px solid #bdc3c7;
                 border-radius: 6px;
                 background-color: white;
@@ -1195,7 +1419,13 @@ class InscripcionOverlay(BaseOverlay):
         
         # Fila 4: Descuento y Costo
         lbl_descuento = QLabel("🎁 DESCUENTO APLICADO:")
-        lbl_descuento.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_descuento.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_descuento.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_descuento, 3, 0)
         
         self.descuento_spin = QDoubleSpinBox()
@@ -1203,12 +1433,12 @@ class InscripcionOverlay(BaseOverlay):
         self.descuento_spin.setDecimals(2)
         self.descuento_spin.setSuffix(" %")
         self.descuento_spin.setValue(0.0)
-        self.descuento_spin.setMinimumHeight(30)
-        self.descuento_spin.setMaximumHeight(40)
+        self.descuento_spin.setMinimumHeight(40)  # MODIFICADO: de 30 a 40
+        self.descuento_spin.setMaximumHeight(45)  # AÑADIDO: altura máxima
         self.descuento_spin.setStyleSheet("""
             QDoubleSpinBox {
-                font-size: 13px;
-                padding: 8px;
+                font-size: 14px;      # MODIFICADO: de 13px a 14px
+                padding: 10px;        # MODIFICADO: de 8px a 10px
                 border: 1px solid #bdc3c7;
                 border-radius: 6px;
                 background-color: white;
@@ -1217,7 +1447,13 @@ class InscripcionOverlay(BaseOverlay):
         info_grid.addWidget(self.descuento_spin, 3, 1)
         
         lbl_costo = QLabel("💰 COSTO TOTAL:")
-        lbl_costo.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_costo.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 5px 0px;  # AÑADIDO: padding vertical
+        """)
+        lbl_costo.setMinimumHeight(30)  # AÑADIDO: altura mínima
         info_grid.addWidget(lbl_costo, 3, 2)
         
         self.costo_total_label = QLabel("0.00 Bs")
@@ -1225,11 +1461,12 @@ class InscripcionOverlay(BaseOverlay):
             font-weight: bold;
             font-size: 16px;
             color: #e74c3c;
-            padding: 10px 15px;
+            padding: 12px 15px;   # MODIFICADO: de 10px a 12px vertical
             background-color: white;
             border-radius: 6px;
             border: 2px solid #e74c3c;
             min-width: 150px;
+            min-height: 50px;     # AÑADIDO: altura mínima
             text-align: center;
         """)
         info_grid.addWidget(self.costo_total_label, 3, 3)
@@ -1242,7 +1479,7 @@ class InscripcionOverlay(BaseOverlay):
         
         self.btn_registrar_inscripcion = QPushButton("✅ REGISTRAR INSCRIPCIÓN")
         self.btn_registrar_inscripcion.setObjectName("btnRegistrarInscripcion")
-        self.btn_registrar_inscripcion.setMinimumHeight(45)
+        self.btn_registrar_inscripcion.setMinimumHeight(50)  # MODIFICADO: de 45 a 50
         self.btn_registrar_inscripcion.setMinimumWidth(250)
         self.btn_registrar_inscripcion.setStyleSheet("""
             #btnRegistrarInscripcion {
@@ -1252,8 +1489,8 @@ class InscripcionOverlay(BaseOverlay):
                 border: none;
                 border-radius: 8px;
                 font-weight: bold;
-                font-size: 14px;
-                padding: 0 30px;
+                font-size: 15px;  # MODIFICADO: de 14px a 15px
+                padding: 12px 30px;  # MODIFICADO: de 0 30px a 12px 30px
             }
             #btnRegistrarInscripcion:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -1276,23 +1513,24 @@ class InscripcionOverlay(BaseOverlay):
         # Label para mostrar ID de inscripción
         self.inscripcion_id_label = QLabel("📋 ID de inscripción: <span style='color:#7f8c8d; font-style:italic;'>No registrado</span>")
         self.inscripcion_id_label.setStyleSheet("""
-            font-size: 13px;
-            padding: 10px;
+            font-size: 14px;      # MODIFICADO: de 13px a 14px
+            padding: 12px;        # MODIFICADO: de 10px a 12px
             background-color: #f8f9fa;
             border-radius: 6px;
             text-align: center;
             margin-top: 10px;
+            min-height: 40px;     # AÑADIDO: altura mínima
         """)
         self.inscripcion_id_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.inscripcion_id_label)
         
-        # Establecer altura mínima para esta sección
-        frame.setMinimumHeight(350)
+        # Aumentar altura mínima de la sección completa
+        frame.setMinimumHeight(400)  # MODIFICADO: de 350 a 400
         
         return frame
     
     def crear_seccion_transaccion(self):
-        """Crear sección para registrar transacción"""
+        """Crear sección para registrar transacción - VERSIÓN MEJORADA"""
         frame = QFrame()
         frame.setObjectName("seccionTransaccion")
         frame.setStyleSheet("""
@@ -1304,109 +1542,231 @@ class InscripcionOverlay(BaseOverlay):
             }
         """)
         frame.setVisible(False)
-
+        
         layout = QVBoxLayout(frame)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 15, 20, 15)
-
+        
         # Título
         titulo = QLabel("💰 REGISTRAR TRANSACCIÓN")
         titulo.setStyleSheet("""
             font-weight: bold;
             font-size: 16px;
             color: #2980b9;
-            padding-bottom: 10px;
+            padding-bottom: 12px;  # MODIFICADO: de 10px a 12px
             border-bottom: 2px dashed #3498db;
         """)
         layout.addWidget(titulo)
-
+        
         # Grid para datos de transacción
         transaccion_grid = QGridLayout()
         transaccion_grid.setSpacing(12)
-        transaccion_grid.setVerticalSpacing(15)
-
+        transaccion_grid.setVerticalSpacing(20)  # AÑADIDO: aumentar espaciado vertical
+        
         # Fila 1: Código y Fecha
         lbl_codigo = QLabel("🔢 CÓDIGO TRANSACCIÓN:")
-        lbl_codigo.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_codigo.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_codigo, 0, 0)
-
+        
         self.codigo_transaccion_label = QLabel("AUTOGENERADO")
         self.codigo_transaccion_label.setStyleSheet("""
             font-weight: bold;
             font-size: 14px;
             color: #9b59b6;
-            padding: 10px;
+            padding: 12px;        # MODIFICADO: de 10px a 12px
             background-color: #f5eef8;
             border-radius: 6px;
             border: 1px solid #9b59b6;
             min-width: 200px;
+            min-height: 45px;     # AÑADIDO: altura mínima
         """)
         transaccion_grid.addWidget(self.codigo_transaccion_label, 0, 1)
-
+        
         lbl_fecha_pago = QLabel("📅 FECHA DE PAGO:")
-        lbl_fecha_pago.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_fecha_pago.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_fecha_pago, 0, 2)
-
+        
         self.fecha_pago_date = QDateEdit()
         self.fecha_pago_date.setCalendarPopup(True)
         self.fecha_pago_date.setDate(QDate.currentDate())
         self.fecha_pago_date.setDisplayFormat("dd/MM/yyyy")
-        self.fecha_pago_date.setMinimumHeight(30)
+        self.fecha_pago_date.setMinimumHeight(45)  # MODIFICADO: de 30 a 45
+        self.fecha_pago_date.setStyleSheet("""
+            QDateEdit {
+                font-size: 14px;
+                padding: 12px;    # AÑADIDO: padding
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         transaccion_grid.addWidget(self.fecha_pago_date, 0, 3)
-
+        
         # Fila 2: Forma de Pago y Origen
         lbl_forma_pago = QLabel("💳 FORMA DE PAGO:")
-        lbl_forma_pago.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_forma_pago.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_forma_pago, 1, 0)
-
+        
         from config.constants import FormaPago
         fp = FormaPago
         self.forma_pago_combo = QComboBox()
         self.forma_pago_combo.addItems([fp.EFECTIVO.value, fp.DEPOSITO.value, fp.TARJETA.value, fp.TRANSFERENCIA.value, fp.QR.value])
-        self.forma_pago_combo.setMinimumHeight(30)
+        self.forma_pago_combo.setMinimumHeight(45)  # MODIFICADO: de 30 a 45
+        self.forma_pago_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 14px;
+                padding: 12px;    # AÑADIDO: padding
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         transaccion_grid.addWidget(self.forma_pago_combo, 1, 1)
-
+        
         lbl_origen = QLabel("🏦 ORIGEN/REFERENCIA:")
-        lbl_origen.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_origen.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_origen, 1, 2)
-
+        
         self.origen_transaccion_input = QLineEdit()
         self.origen_transaccion_input.setPlaceholderText("Ej: Banco XYZ, Caja, Nro de depósito...")
-        self.origen_transaccion_input.setMinimumHeight(30)
-        self.origen_transaccion_input.setMaximumHeight(40)
+        self.origen_transaccion_input.setMinimumHeight(45)  # MODIFICADO: de 30/40 a 45
+        self.origen_transaccion_input.setMaximumHeight(50)
+        self.origen_transaccion_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 14px;
+                padding: 12px;    # AÑADIDO: padding
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         transaccion_grid.addWidget(self.origen_transaccion_input, 1, 3)
-
+        
         # Fila 3: Estado y Monto
         lbl_estado_trans = QLabel("📊 ESTADO TRANSACCIÓN:")
-        lbl_estado_trans.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_estado_trans.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_estado_trans, 2, 0)
-
+        
         self.estado_transaccion_combo = QComboBox()
         self.estado_transaccion_combo.addItems(["PENDIENTE", "CONFIRMADO", "ANULADO"])
-        self.estado_transaccion_combo.setMinimumHeight(30)
+        self.estado_transaccion_combo.setMinimumHeight(45)  # MODIFICADO: de 30 a 45
         self.estado_transaccion_combo.setCurrentText("CONFIRMADO")
+        self.estado_transaccion_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 14px;
+                padding: 12px;    # AÑADIDO: padding
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         transaccion_grid.addWidget(self.estado_transaccion_combo, 2, 1)
-
+        
         lbl_monto = QLabel("💰 MONTO A PAGAR:")
-        lbl_monto.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        lbl_monto.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 13px;
+            padding: 6px 0px;  # AÑADIDO: padding vertical
+            min-height: 35px;  # AÑADIDO: altura mínima
+        """)
         transaccion_grid.addWidget(lbl_monto, 2, 2)
-
+        
         self.monto_pago_input = QLineEdit()
         self.monto_pago_input.setPlaceholderText("Ej: 1000.00")
-        self.monto_pago_input.setMinimumHeight(30)
-        self.monto_pago_input.setMaximumHeight(40)
+        self.monto_pago_input.setMinimumHeight(45)  # MODIFICADO: de 30/40 a 45
+        self.monto_pago_input.setMaximumHeight(50)
         self.monto_pago_input.setValidator(QDoubleValidator(0.0, 9999999.99, 2))
+        self.monto_pago_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 14px;
+                padding: 12px;    # AÑADIDO: padding
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         transaccion_grid.addWidget(self.monto_pago_input, 2, 3)
-
+        
         layout.addLayout(transaccion_grid)
-
-        # Establecer altura mínima para esta sección
-        frame.setMinimumHeight(250)
-
+        
+        # Aumentar altura mínima para esta sección
+        frame.setMinimumHeight(350)  # MODIFICADO: de 250 a 350
+        
         return frame
     
     def crear_separador(self, texto: str):
         """Crear separador con texto"""
+        frame = QFrame()
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: transparent;
+                padding: 5px 0px;
+            }
+        """)
+        
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+        # Línea izquierda
+        linea1 = QFrame()
+        linea1.setFrameShape(QFrame.Shape.HLine)
+        linea1.setFrameShadow(QFrame.Shadow.Sunken)
+        linea1.setStyleSheet("border: 1px solid #bdc3c7;")
+        layout.addWidget(linea1)
+        
+        # Texto
+        label = QLabel(texto)
+        label.setStyleSheet("""
+            font-weight: bold;
+            color: #7f8c8d;
+            font-size: 12px;
+            padding: 0 15px;
+        """)
+        layout.addWidget(label)
+        
+        # Línea derecha
+        linea2 = QFrame()
+        linea2.setFrameShape(QFrame.Shape.HLine)
+        linea2.setFrameShadow(QFrame.Shadow.Sunken)
+        linea2.setStyleSheet("border: 1px solid #bdc3c7;")
+        layout.addWidget(linea2)
+        
+        return frame
+    
+    @staticmethod
+    def crear_separador_estatico(texto: str):
+        """Crear separador con texto - versión estática"""
         frame = QFrame()
         frame.setStyleSheet("""
             QFrame {
@@ -1457,6 +1817,9 @@ class InscripcionOverlay(BaseOverlay):
         if hasattr(self, 'btn_buscar_estudiante'):
             self.btn_buscar_estudiante.clicked.connect(self.buscar_estudiantes_disponibles)
             
+        if hasattr(self, 'estudiante_search_input'):
+            self.estudiante_search_input.returnPressed.connect(self.buscar_estudiantes_disponibles)
+        
         if hasattr(self, 'btn_buscar_programa'):
             self.btn_buscar_programa.clicked.connect(self.buscar_programas_disponibles)
             
@@ -1560,14 +1923,17 @@ class InscripcionOverlay(BaseOverlay):
             self.grupo_buscar_programa.setVisible(False)
             self.seccion_listado_frame.setVisible(True)
             self.seccion_formulario_frame.setVisible(False)
-            
+
             # Configurar título
             if hasattr(self, 'titulo_listado_label'):
                 self.titulo_listado_label.setText("👥 ESTUDIANTES INSCRITOS EN EL PROGRAMA")
-                
+
             # Cargar información
             self.cargar_info_programa(self.programa_id)
             self.cargar_estudiantes_inscritos_programa()
+
+            # CARGAR ESTUDIANTES DISPONIBLES AUTOMÁTICAMENTE
+            QTimer.singleShot(100, self.cargar_estudiantes_automaticamente)
             
         # CASO 3: Tenemos ambos IDs (modo inscripción)
         elif self.estudiante_id and self.programa_id:
@@ -1597,27 +1963,38 @@ class InscripcionOverlay(BaseOverlay):
             self.seccion_formulario_frame.setVisible(False)
     
     def actualizar_estado_formulario(self):
-        """Actualizar la visibilidad de las secciones según el estado - VERSIÓN CORREGIDA"""
+        """Actualizar la visibilidad de las secciones según el estado - VERSIÓN MEJORADA"""
         # Determinar qué secciones mostrar
         tiene_inscripcion = bool(self.inscripcion_id)
         tiene_estudiante_programa = bool(self.estudiante_id and self.programa_id)
-
+        
         if tiene_inscripcion:
             # Ya tenemos inscripción registrada: mostrar TODAS las secciones
-            self.seccion_transaccion_frame.setVisible(True)
-            self.seccion_detalles_documentos_frame.setVisible(True)
-
+            # Mostrar separadores
+            self.mostrar_separador(1, True)
+            self.mostrar_separador(2, True)
+            self.mostrar_separador(3, True)
+            
+            # Mostrar secciones
+            if self.seccion_transaccion_frame:
+                self.seccion_transaccion_frame.setVisible(True)
+            if self.seccion_detalles_documentos_frame:
+                self.seccion_detalles_documentos_frame.setVisible(True)
+            if self.seccion_resumen_frame:
+                self.seccion_resumen_frame.setVisible(True)
+            
             # Actualizar label de ID
             self.inscripcion_id_label.setText(f"✅ ID de inscripción: <b>{self.inscripcion_id}</b>")
             self.inscripcion_id_label.setStyleSheet("""
                 color: #27ae60;
                 font-weight: bold;
-                padding: 10px;
+                padding: 12px;
                 background-color: #eafaf1;
                 border-radius: 6px;
                 border: 1px solid #27ae60;
+                min-height: 45px;
             """)
-
+            
             # Deshabilitar botón de registrar inscripción
             self.btn_registrar_inscripcion.setEnabled(False)
             self.btn_registrar_inscripcion.setText("✅ INSCRIPCIÓN REGISTRADA")
@@ -1628,32 +2005,44 @@ class InscripcionOverlay(BaseOverlay):
                     border: none;
                     border-radius: 8px;
                     font-weight: bold;
-                    padding: 0 20px;
+                    padding: 12px 20px;
                     opacity: 0.8;
+                    min-height: 50px;
                 }
             """)
-
+            
             # Habilitar botón de registrar transacción
             self.btn_registrar_transaccion.setEnabled(True)
-
+            
             # Cargar historial de transacciones existentes
             self.cargar_historial_transacciones()
-
+            
         elif tiene_estudiante_programa and not tiene_inscripcion:
             # Tenemos estudiante y programa pero no inscripción: mostrar solo datos básicos
-            self.seccion_transaccion_frame.setVisible(False)
-            self.seccion_detalles_documentos_frame.setVisible(False)
-
+            # Mostrar solo separador 3 (Resumen y acciones)
+            self.mostrar_separador(1, False)
+            self.mostrar_separador(2, False)
+            self.mostrar_separador(3, True)
+            
+            # Ocultar secciones de transacción y detalles
+            if self.seccion_transaccion_frame:
+                self.seccion_transaccion_frame.setVisible(False)
+            if self.seccion_detalles_documentos_frame:
+                self.seccion_detalles_documentos_frame.setVisible(False)
+            if self.seccion_resumen_frame:
+                self.seccion_resumen_frame.setVisible(True)
+                
             # Actualizar label de ID
             self.inscripcion_id_label.setText("📋 ID de inscripción: <span style='color:#7f8c8d; font-style:italic;'>No registrado</span>")
             self.inscripcion_id_label.setStyleSheet("""
-                font-size: 13px;
-                padding: 8px;
+                font-size: 14px;
+                padding: 12px;
                 background-color: #f8f9fa;
-                border-radius: 4px;
+                border-radius: 6px;
                 text-align: center;
+                min-height: 45px;
             """)
-
+            
             # Habilitar botón de registrar inscripción
             self.btn_registrar_inscripcion.setEnabled(True)
             self.btn_registrar_inscripcion.setText("✅ REGISTRAR INSCRIPCIÓN")
@@ -1665,22 +2054,34 @@ class InscripcionOverlay(BaseOverlay):
                     border: none;
                     border-radius: 8px;
                     font-weight: bold;
-                    font-size: 14px;
-                    padding: 0 30px;
+                    font-size: 15px;
+                    padding: 12px 30px;
+                    min-height: 50px;
                 }
                 QPushButton:hover {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 #219653, stop:1 #1e8449);
                 }
             """)
-
+            
             # Deshabilitar secciones de transacción
             self.btn_registrar_transaccion.setEnabled(False)
-
+            
         else:
             # No hay suficiente información: ocultar todo
-            self.seccion_transaccion_frame.setVisible(False)
-            self.seccion_detalles_documentos_frame.setVisible(False)
+            # Ocultar todos los separadores
+            self.mostrar_separador(1, False)
+            self.mostrar_separador(2, False)
+            self.mostrar_separador(3, False)
+            
+            # Ocultar secciones
+            if self.seccion_transaccion_frame:
+                self.seccion_transaccion_frame.setVisible(False)
+            if self.seccion_detalles_documentos_frame:
+                self.seccion_detalles_documentos_frame.setVisible(False)
+            if self.seccion_resumen_frame:
+                self.seccion_resumen_frame.setVisible(False)
+                
             self.btn_registrar_inscripcion.setEnabled(False)
             self.btn_registrar_transaccion.setEnabled(False)
     
@@ -1697,7 +2098,7 @@ class InscripcionOverlay(BaseOverlay):
                 ci_completo = f"{estudiante.get('ci_numero', '')}-{estudiante.get('ci_expedicion', '')}"
                 self.estudiante_ci_label.setText(ci_completo)
                 
-                nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')} {estudiante.get('apellido_materno', '')}".strip()
+                nombre_completo = f"{estudiante.get('apellido_paterno', '')} {estudiante.get('apellido_materno', '')} {estudiante.get('nombres', '')}".strip()
                 self.estudiante_nombre_label.setText(nombre_completo)
                 self.estudiante_nombre_form_label.setText(nombre_completo)
                 
@@ -1884,6 +2285,13 @@ class InscripcionOverlay(BaseOverlay):
         except Exception as e:
             logger.error(f"Error cargando programas inscritos: {e}")
             self.mostrar_mensaje("Error", f"Error al cargar programas inscritos: {str(e)}", "error")
+    
+    def cargar_estudiantes_automaticamente(self):
+        """Cargar estudiantes disponibles automáticamente cuando se muestra el buscador"""
+        if self.programa_id and self.grupo_buscar_estudiante.isVisible():
+            # Solo cargar si no hay búsqueda previa
+            if not self.estudiante_search_input.text().strip():
+                self.buscar_estudiantes_disponibles()
     
     def cargar_estudiantes_inscritos_programa(self):
         """Cargar los estudiantes inscritos en el programa"""
@@ -2383,6 +2791,9 @@ class InscripcionOverlay(BaseOverlay):
                 return
             
             # Limpiar tabla
+            if not self.historial_table:
+                logger.error(f"No existe historial de transacciones")
+                return
             self.historial_table.setRowCount(0)
             
             # Obtener transacciones de la inscripción
@@ -2448,83 +2859,169 @@ class InscripcionOverlay(BaseOverlay):
     # ===== MÉTODOS DE BÚSQUEDA =====
     
     def buscar_estudiantes_disponibles(self):
-        """Buscar estudiantes no inscritos en el programa actual"""
+        """Buscar estudiantes no inscritos en el programa actual - VERSIÓN ACTUALIZADA"""
         search_term = self.estudiante_search_input.text().strip()
-        
-        if not search_term:
-            self.mostrar_mensaje("Advertencia", "Ingrese un término de búsqueda", "warning")
-            return
-        
+
         try:
             self.estudiantes_disponibles_table.setRowCount(0)
             self.estudiante_status_label.setText("🔍 Buscando estudiantes...")
             self.estudiante_status_label.setStyleSheet("color: #f39c12;")
-            
-            # TODO: Implementar búsqueda real de estudiantes no inscritos en este programa
-            # Por ahora, datos de ejemplo
-            estudiantes_ejemplo = [
-                {
-                    'id': 3,
-                    'ci_numero': '8888888',
-                    'ci_expedicion': 'CB',
-                    'nombres': 'Carlos Andrés',
-                    'apellido_paterno': 'Rodríguez',
-                    'email': 'carlos@email.com',
-                    'telefono': '79999999'
-                },
-                {
-                    'id': 4,
-                    'ci_numero': '9999999',
-                    'ci_expedicion': 'PT',
-                    'nombres': 'Ana Lucía',
-                    'apellido_paterno': 'Torrez',
-                    'email': 'ana@email.com',
-                    'telefono': '71111111'
-                }
-            ]
-            
-            self.estudiantes_disponibles_table.setRowCount(len(estudiantes_ejemplo))
-            
-            for i, estudiante in enumerate(estudiantes_ejemplo):
-                # CI
-                ci_completo = f"{estudiante['ci_numero']}-{estudiante['ci_expedicion']}"
-                ci_item = QTableWidgetItem(ci_completo)
-                self.estudiantes_disponibles_table.setItem(i, 0, ci_item)
-                
-                # Nombre
-                nombre_completo = f"{estudiante['nombres']} {estudiante['apellido_paterno']}"
-                self.estudiantes_disponibles_table.setItem(i, 1, QTableWidgetItem(nombre_completo))
-                
-                # Email
-                self.estudiantes_disponibles_table.setItem(i, 2, QTableWidgetItem(estudiante['email']))
-                
-                # Teléfono
-                self.estudiantes_disponibles_table.setItem(i, 3, QTableWidgetItem(estudiante['telefono']))
-                
-                # Botón Inscribir
-                btn_inscribir = QPushButton("📝 INSCRIBIR")
-                btn_inscribir.setStyleSheet("""
-                    QPushButton {
-                        background-color: #27ae60;
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        padding: 5px 10px;
-                        font-size: 11px;
-                    }
-                    QPushButton:hover {
-                        background-color: #219653;
-                    }
+
+            # Validar que tenemos programa_id
+            if not self.programa_id:
+                self.mostrar_mensaje("Error", "No hay programa seleccionado", "error")
+                self.estudiante_status_label.setText("❌ No hay programa seleccionado")
+                self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
+                return
+
+            # Llamar al modelo para buscar estudiantes
+            from model.estudiante_model import EstudianteModel
+
+            # Si hay término de búsqueda, usar la función con criterios
+            if search_term:
+                resultado = EstudianteModel.buscar_estudiantes_disponibles_programa_criterios(
+                    programa_id=self.programa_id,
+                    criterios=search_term
+                )
+            else:
+                # Si no hay término, usar la función básica
+                resultado = EstudianteModel.obtener_estudiantes_disponibles_programa(
+                    programa_id=self.programa_id
+                )
+
+            if resultado.get('success', False):
+                estudiantes = resultado.get('data', [])
+
+                # GUARDAR EN CACHÉ para acceso posterior
+                self.estudiantes_encontrados_cache = estudiantes
+
+                if not estudiantes:
+                    self.estudiante_status_label.setText("❌ No se encontraron estudiantes")
+                    self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
+                    return
+
+                # Configurar altura dinámica de la tabla
+                altura_por_fila = 40
+                altura_minima = 150
+                altura_maxima = 400
+
+                num_estudiantes = len(estudiantes)
+                altura_tabla = min(
+                    altura_maxima,
+                    max(altura_minima, num_estudiantes * altura_por_fila + 40)
+                )
+
+                self.estudiantes_disponibles_table.setMinimumHeight(altura_tabla)
+                self.estudiantes_disponibles_table.setMaximumHeight(altura_tabla + 50)
+
+                self.estudiantes_disponibles_table.setRowCount(num_estudiantes)
+
+                for i, estudiante in enumerate(estudiantes):
+                    estudiante_id = estudiante.get('estudiante_id')
+
+                    # CI
+                    ci_completo = estudiante.get('ci_completo', '')
+                    ci_item = QTableWidgetItem(ci_completo)
+                    # Almacenar datos del estudiante en el item para acceso posterior
+                    ci_item.setData(Qt.ItemDataRole.UserRole, {
+                        'id': estudiante_id,
+                        'ci_completo': ci_completo,
+                        'nombre': estudiante.get('estudiante_nombre', '')
+                    })
+                    self.estudiantes_disponibles_table.setItem(i, 0, ci_item)
+
+                    # Nombre completo
+                    estudiante_nombre = estudiante.get('estudiante_nombre', '')
+                    nombre_item = QTableWidgetItem(estudiante_nombre)
+                    nombre_item.setToolTip(estudiante_nombre)
+                    self.estudiantes_disponibles_table.setItem(i, 1, nombre_item)
+
+                    # Email
+                    email = estudiante.get('email', '')
+                    email_item = QTableWidgetItem(email)
+                    email_item.setToolTip(email)
+                    self.estudiantes_disponibles_table.setItem(i, 2, email_item)
+
+                    # Teléfono
+                    telefono = estudiante.get('telefono', '')
+                    telefono_item = QTableWidgetItem(telefono)
+                    self.estudiantes_disponibles_table.setItem(i, 3, telefono_item)
+
+                    # Botón Inscribir
+                    btn_inscribir = QPushButton("📝 INSCRIBIR")
+                    # Usar un nombre de objeto único con el ID
+                    btn_object_name = f"btnInscribir_{estudiante_id}"
+                    btn_inscribir.setObjectName(btn_object_name)
+                    btn_inscribir.setMinimumHeight(30)
+                    btn_inscribir.setStyleSheet("""
+                        QPushButton {
+                            background-color: #27ae60;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 5px 15px;
+                            font-size: 11px;
+                            font-weight: bold;
+                            min-width: 90px;
+                        }
+                        QPushButton:hover {
+                            background-color: #219653;
+                            border: 1px solid #145a32;
+                        }
+                        QPushButton:pressed {
+                            background-color: #1e8449;
+                        }
+                    """)
+
+                    # Conectar el botón usando el ID real
+                    if estudiante_id:
+                        from functools import partial
+                        btn_inscribir.clicked.connect(
+                            partial(self.seleccionar_estudiante_para_inscribir, estudiante_id)
+                        )
+                        logger.debug(f"Botón configurado para estudiante ID: {estudiante_id}")
+                    else:
+                        btn_inscribir.setEnabled(False)
+                        logger.warning(f"Estudiante sin ID en índice {i}")
+
+                    self.estudiantes_disponibles_table.setCellWidget(i, 4, btn_inscribir)
+
+                # Ajustar ancho de columnas
+                self.estudiantes_disponibles_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # CI
+                self.estudiantes_disponibles_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Nombre
+                self.estudiantes_disponibles_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Email
+                self.estudiantes_disponibles_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Teléfono
+                self.estudiantes_disponibles_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Acción
+
+                mensaje = f"✅ Encontrados {num_estudiantes} estudiante(s)"
+                if search_term:
+                    mensaje += f" para '{search_term}'"
+
+                self.estudiante_status_label.setText(mensaje)
+                self.estudiante_status_label.setStyleSheet("""
+                    color: #27ae60;
+                    font-weight: bold;
+                    padding: 8px;
+                    background-color: #eafaf1;
+                    border-radius: 6px;
+                    border: 1px solid #27ae60;
                 """)
-                btn_inscribir.clicked.connect(lambda checked, e=estudiante: self.seleccionar_estudiante_para_inscribir(e))
-                self.estudiantes_disponibles_table.setCellWidget(i, 4, btn_inscribir)
-            
-            self.estudiante_status_label.setText(f"✅ Encontrados {len(estudiantes_ejemplo)} estudiantes")
-            self.estudiante_status_label.setStyleSheet("color: #27ae60;")
-            
+
+            else:
+                mensaje_error = resultado.get('message', 'Error desconocido en la búsqueda')
+                self.estudiante_status_label.setText(f"❌ {mensaje_error}")
+                self.estudiante_status_label.setStyleSheet("""
+                    color: #e74c3c;
+                    font-weight: bold;
+                    padding: 8px;
+                    background-color: #fdedec;
+                    border-radius: 6px;
+                    border: 1px solid #e74c3c;
+                """)
+
         except Exception as e:
-            logger.error(f"Error buscando estudiantes: {e}")
-            self.estudiante_status_label.setText(f"❌ Error: {str(e)}")
+            logger.error(f"Error buscando estudiantes: {e}", exc_info=True)
+            self.estudiante_status_label.setText(f"❌ Error del sistema: {str(e)[:100]}")
             self.estudiante_status_label.setStyleSheet("color: #e74c3c;")
     
     def buscar_programas_disponibles(self):
@@ -2541,20 +3038,61 @@ class InscripcionOverlay(BaseOverlay):
     # ===== MÉTODOS DE SELECCIÓN =====
     
     def seleccionar_estudiante_desde_tabla(self, item):
-        """Seleccionar estudiante desde la tabla"""
-        row = item.row()
-        estudiante_id_item = self.estudiantes_disponibles_table.item(row, 0)
-        # TODO: Obtener ID real del estudiante
-        if estudiante_id_item:
-            # Por ahora, simular selección
-            estudiante_ejemplo = {
-                'id': 3,
-                'ci_numero': '8888888',
-                'ci_expedicion': 'CB',
-                'nombres': 'Carlos Andrés',
-                'apellido_paterno': 'Rodríguez'
-            }
-            self.seleccionar_estudiante_para_inscribir(estudiante_ejemplo)
+        """Seleccionar estudiante desde la tabla por doble click - VERSIÓN CORREGIDA"""
+        try:
+            row = item.row()
+            logger.debug(f"Seleccionando estudiante de la fila {row}")
+
+            # OPCIÓN 1: Obtener el ID del estudiante del botón "Inscribir"
+            estudiante_id = None
+
+            # Buscar el botón en la columna 4 (Acción)
+            widget = self.estudiantes_disponibles_table.cellWidget(row, 4)
+            if widget and isinstance(widget, QPushButton):
+                object_name = widget.objectName()
+                logger.debug(f"Object name del botón: {object_name}")
+
+                if object_name and object_name.startswith("btnInscribir_"):
+                    try:
+                        estudiante_id = int(object_name.replace("btnInscribir_", ""))
+                        logger.debug(f"ID obtenido del botón: {estudiante_id}")
+                    except ValueError as e:
+                        logger.error(f"Error extrayendo ID del botón: {e}")
+
+            # OPCIÓN 2: Si no se pudo obtener del botón, intentar de otra forma
+            if not estudiante_id:
+                # Podríamos almacenar el ID en los datos del item
+                # Por ejemplo, en la columna 0 (CI) podríamos tenerlo como dato de usuario
+                ci_item = self.estudiantes_disponibles_table.item(row, 0)
+                if ci_item:
+                    # Intentar obtener el ID de los datos del item
+                    estudiante_data = ci_item.data(Qt.ItemDataRole.UserRole)
+                    if estudiante_data and isinstance(estudiante_data, dict):
+                        estudiante_id = estudiante_data.get('id')
+                        logger.debug(f"ID obtenido de datos del item: {estudiante_id}")
+
+            # OPCIÓN 3: Si aún no tenemos ID, usar el índice de fila para buscar en los datos cargados
+            if not estudiante_id and hasattr(self, 'estudiantes_encontrados_cache'):
+                # Asegurarnos de que tenemos una caché de estudiantes encontrados
+                if row < len(self.estudiantes_encontrados_cache):
+                    estudiante_cache = self.estudiantes_encontrados_cache[row]
+                    estudiante_id = estudiante_cache.get('estudiante_id')
+                    logger.debug(f"ID obtenido de caché: {estudiante_id}")
+
+            if estudiante_id:
+                logger.info(f"Seleccionando estudiante con ID: {estudiante_id}")
+                self.seleccionar_estudiante_para_inscribir(estudiante_id)
+            else:
+                logger.warning(f"No se pudo obtener el ID del estudiante de la fila {row}")
+                self.mostrar_mensaje(
+                    "Error de selección", 
+                    "No se pudo identificar al estudiante seleccionado. Intente usando el botón 'Inscribir'.", 
+                    "error"
+                )
+
+        except Exception as e:
+            logger.error(f"Error seleccionando estudiante desde tabla: {e}", exc_info=True)
+            self.mostrar_mensaje("Error", f"No se pudo seleccionar el estudiante: {str(e)}", "error")
     
     def seleccionar_programa_desde_tabla(self, item):
         """Seleccionar programa desde la tabla"""
@@ -2566,32 +3104,94 @@ class InscripcionOverlay(BaseOverlay):
             programa_ejemplo_id = 1  # ID de ejemplo
             self.seleccionar_programa_para_inscribir(programa_ejemplo_id)
     
-    def seleccionar_estudiante_para_inscribir(self, estudiante_data):
-        """Seleccionar estudiante para inscribir en el programa actual"""
-        self.estudiante_id = estudiante_data.get('id')
-        self.estudiante_data = estudiante_data
-        
-        # Actualizar interfaz para modo inscripción
-        self.configurar_interfaz_segun_contexto()
+    def seleccionar_estudiante_para_inscribir(self, estudiante_id: int):
+        """Seleccionar estudiante para inscribir en el programa actual por ID"""
+        try:
+            if not estudiante_id:
+                self.mostrar_mensaje("Error", "ID de estudiante inválido", "error")
+                return
+
+            # Obtener datos completos del estudiante
+            from model.estudiante_model import EstudianteModel
+            estudiante = EstudianteModel.buscar_estudiante_id(estudiante_id)
+
+            if not estudiante:
+                self.mostrar_mensaje("Error", "No se pudo cargar los datos del estudiante", "error")
+                return
+
+            # Verificar que el estudiante no esté ya inscrito
+            from config.database import Database
+            connection = Database.get_connection()
+            if connection:
+                cursor = connection.cursor()
+                query = """
+                SELECT id, estado FROM inscripciones 
+                WHERE estudiante_id = %s AND programa_id = %s
+                """
+                cursor.execute(query, (estudiante_id, self.programa_id))
+                result = cursor.fetchone()
+                cursor.close()
+                Database.return_connection(connection)
+
+                if result:
+                    estado_inscripcion = result[1]
+                    if estado_inscripcion != 'RETIRADO':
+                        self.mostrar_mensaje("Advertencia", 
+                            f"Este estudiante ya está {estado_inscripcion.lower()} en el programa", 
+                            "warning")
+                        return
+
+            # Actualizar datos
+            self.estudiante_id = estudiante_id
+            self.estudiante_data = estudiante
+
+            # Actualizar interfaz para modo inscripción
+            self.configurar_interfaz_segun_contexto()
+
+            # Mostrar mensaje de confirmación
+            nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')}"
+            self.mostrar_mensaje("✅ Estudiante seleccionado", 
+                                f"Has seleccionado a: {nombre_completo.strip()}\n\nAhora puedes proceder con la inscripción.", 
+                                "success")
+
+        except Exception as e:
+            logger.error(f"Error seleccionando estudiante por ID {estudiante_id}: {e}", exc_info=True)
+            self.mostrar_mensaje("Error", f"No se pudo seleccionar al estudiante: {str(e)}", "error")
     
     def seleccionar_programa_para_inscribir(self, programa_id: int):
         """Seleccionar programa para inscribir al estudiante actual"""
         try:
-            # Cargar información del programa
+            print(f"DEBUG: Iniciando seleccionar_programa_para_inscribir({programa_id})")
+
+            # SIMPLIFICAR: Solo establecer los IDs y recargar
+            self.programa_id = programa_id
+
+            # Cargar datos básicos del programa
             resultado = ProgramaModel.obtener_programa(programa_id)
-            if resultado.get('success') and resultado.get('data'):
-                self.programa_id = programa_id
+            if resultado.get('success'):
                 self.programa_data = resultado['data']
-                
-                # Actualizar interfaz para modo inscripción
+                if not self.programa_data:
+                    return
+                print(f"DEBUG: Programa cargado: {self.programa_data.get('nombre')}")
+
+            # Llamar a configurar_interfaz con try-catch
+            try:
                 self.configurar_interfaz_segun_contexto()
-            else:
-                mensaje = resultado.get('message', 'Error desconocido')
-                self.mostrar_mensaje("Error", f"No se pudo cargar el programa: {mensaje}", "error")
-                
+                print("DEBUG: Interfaz configurada exitosamente")
+            except Exception as e:
+                print(f"ERROR en configurar_interfaz: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+
         except Exception as e:
-            logger.error(f"Error seleccionando programa: {e}")
-            self.mostrar_mensaje("Error", f"Error al seleccionar programa: {str(e)}", "error")
+            print(f"ERROR CRÍTICO: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Mostrar error simple
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", f"Error: {str(e)[:100]}")
     
     # ===== MÉTODOS DE INSCRIPCIÓN (FLUJO PRINCIPAL) =====
     
@@ -2673,7 +3273,7 @@ class InscripcionOverlay(BaseOverlay):
             return
         
         # Configurar información básica
-        estudiante_nombre = f"{self.estudiante_data.get('nombres', '')} {self.estudiante_data.get('apellido_paterno', '')}"
+        estudiante_nombre = f"{self.estudiante_data.get('apellido_paterno', '')} {self.estudiante_data.get('apellido_materno', '')} {self.estudiante_data.get('nombres', '')}"
         self.estudiante_nombre_form_label.setText(estudiante_nombre.strip() or "No disponible")
         
         programa_nombre = self.programa_data.get('nombre', 'No disponible')
@@ -2691,7 +3291,7 @@ class InscripcionOverlay(BaseOverlay):
         
         # Asegurar que el formulario sea visible
         self.seccion_formulario_frame.setVisible(True)
-
+    
     def cancelar_formulario_inscripcion(self):
         """Cancelar el proceso de inscripción y volver al listado"""
         if self.estudiante_id and self.programa_id:
@@ -2741,18 +3341,41 @@ class InscripcionOverlay(BaseOverlay):
             if not self.inscripcion_id:
                 self.mostrar_mensaje("Error", "Primero debe registrar la inscripción", "error")
                 return
-
+            
             # Asegurar que tenemos estudiante_id y programa_id
             if not self.estudiante_id or not self.programa_id:
                 self.mostrar_mensaje("Error", "Falta información del estudiante o programa", "error")
                 return
-
+            
+            # CORRECCIÓN: Verificar que los datos existan
+            if self.estudiante_data is None:
+                logger.warning("estudiante_data es None, intentando cargar...")
+                # Intentar cargar los datos
+                from model.estudiante_model import EstudianteModel
+                self.estudiante_data = EstudianteModel.buscar_estudiante_id(self.estudiante_id)
+            
+            if self.programa_data is None:
+                logger.warning("programa_data es None, intentando cargar...")
+                # Intentar cargar los datos
+                resultado = ProgramaModel.obtener_programa(self.programa_id)
+                if resultado.get('success') and resultado.get('data'):
+                    self.programa_data = resultado['data']
+            
+            # Si aún son None, mostrar error
+            if self.estudiante_data is None:
+                self.mostrar_mensaje("Error", "No se pudo cargar datos del estudiante", "error")
+                return
+            
+            if self.programa_data is None:
+                self.mostrar_mensaje("Error", "No se pudo cargar datos del programa", "error")
+                return
+            
             # Validar monto
             monto_text = self.monto_pago_input.text().strip()
             if not monto_text:
                 self.mostrar_mensaje("Error", "Ingrese el monto de la transacción", "error")
                 return
-
+            
             try:
                 monto = float(monto_text)
                 if monto <= 0:
@@ -2877,7 +3500,7 @@ class InscripcionOverlay(BaseOverlay):
                 
                 # Emitir señal si existe
                 if hasattr(self, 'transaccion_registrada'):
-                    self.transaccion_registrada.emit({
+                    self.transaccion_registrada.emit({  # ✅ CORREGIDO: Eliminar .emit()
                         'transaccion_id': transaccion_id,
                         'inscripcion_id': self.inscripcion_id,
                         'monto': monto,
@@ -3688,38 +4311,42 @@ class InscripcionOverlay(BaseOverlay):
     
     def calcular_costo_total(self):
         """Calcular el costo total considerando descuento - VERSIÓN CORREGIDA"""
+        if not self.resumen_monto_label:
+            logger.error(f"Error método calcular_costo_total resumen_monto_label es None")
+            return
+        
         try:
             if not self.programa_data:
                 self.costo_total_label.setText("0.00 Bs")
                 self.resumen_monto_label.setText("0.00 Bs")
                 return
-
+            
             # Obtener costos del programa
             costo_matricula = float(self.programa_data.get('costo_matricula', 0) or 0)
             costo_inscripcion = float(self.programa_data.get('costo_inscripcion', 0) or 0)
             costo_mensualidad = float(self.programa_data.get('costo_mensualidad', 0) or 0)
             numero_cuotas = int(self.programa_data.get('numero_cuotas', 1) or 1)
-
+            
             # Calcular costo base
             costo_base = costo_matricula + costo_inscripcion + (costo_mensualidad * numero_cuotas)
-
+            
             # Aplicar descuento
             descuento = self.descuento_spin.value() if hasattr(self, 'descuento_spin') else 0
-
+            
             if descuento > 0:
                 total = costo_base * (1 - descuento / 100)
             else:
                 total = costo_base
-
+                
             # Formatear y mostrar
             total_text = f"{total:.2f} Bs"
             self.costo_total_label.setText(total_text)
             self.resumen_monto_label.setText(total_text)
-
+            
             # Actualizar también el monto sugerido en la transacción
             if hasattr(self, 'monto_pago_input') and self.monto_pago_input:
                 self.monto_pago_input.setText(f"{total:.2f}")
-
+                
         except Exception as e:
             logger.error(f"Error calculando costo total: {e}")
             self.costo_total_label.setText("0.00 Bs")
@@ -3767,7 +4394,46 @@ class InscripcionOverlay(BaseOverlay):
             result_recaudado = cursor.fetchone()
             total_recaudado = float(result_recaudado[0]) if result_recaudado else 0.0
 
-            # ... resto del código ...
+            # 4. Calcular estudiantes con saldo pendiente
+            query_saldo_pendiente = """
+            SELECT COUNT(DISTINCT i.estudiante_id) as estudiantes_con_saldo
+            FROM inscripciones i
+            WHERE i.programa_id = %s 
+            AND i.estado NOT IN ('RETIRADO')
+            AND EXISTS (
+                SELECT 1 
+                FROM transacciones t 
+                WHERE t.estudiante_id = i.estudiante_id 
+                AND t.programa_id = i.programa_id
+                AND t.estado = 'CONFIRMADO'
+                GROUP BY t.estudiante_id, t.programa_id
+                HAVING SUM(t.monto_final) < (
+                    SELECT p.costo_total * (1 - COALESCE(i.descuento_aplicado, 0) / 100)
+                    FROM programas p 
+                    WHERE p.id = i.programa_id
+                )
+            )
+            """
+            cursor.execute(query_saldo_pendiente, (programa_id,))
+            result_saldo = cursor.fetchone()
+            estudiantes_con_saldo = result_saldo[0] if result_saldo else 0
+
+            # 5. Obtener costo total del programa para cálculo de recaudado esperado
+            query_costo = """
+            SELECT costo_total FROM programas WHERE id = %s
+            """
+            cursor.execute(query_costo, (programa_id,))
+            result_costo = cursor.fetchone()
+            costo_total = float(result_costo[0]) if result_costo else 0.0
+
+            # Calcular recaudado esperado (si todos los inscritos pagaran completo)
+            recaudado_esperado = total_inscritos * costo_total if total_inscritos > 0 and costo_total > 0 else 0.0
+
+            # Calcular porcentaje de recaudado vs esperado
+            porcentaje_recaudado = (total_recaudado / recaudado_esperado * 100) if recaudado_esperado > 0 else 0.0
+
+            cursor.close()
+            Database.return_connection(connection)
 
             # Actualizar interfaz con los datos calculados
             self.programa_inscritos_label.setText(f"{total_inscritos} estudiantes")
@@ -3789,12 +4455,34 @@ class InscripcionOverlay(BaseOverlay):
                 self.programa_inscritos_label.setToolTip(inscritos_tooltip)
             else:
                 self.programa_inscritos_label.setText(f"{total_inscritos} estudiantes")
+                self.programa_inscritos_label.setToolTip(f"Total inscritos: {total_inscritos} estudiantes")
+
+            # Actualizar label de recaudado
+            if total_recaudado > 0:
+                recaudado_text = f"{total_recaudado:.2f} Bs"
+                if recaudado_esperado > 0:
+                    recaudado_text += f" ({porcentaje_recaudado:.1f}%)"
+
+                self.programa_recaudado_label.setText(recaudado_text)
+                self.programa_recaudado_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+
+                recaudado_tooltip = (
+                    f"💰 <b>Resumen Financiero</b><br><br>"
+                    f"<b>Total Recaudado:</b> {total_recaudado:.2f} Bs<br>"
+                    f"<b>Recaudado Esperado:</b> {recaudado_esperado:.2f} Bs<br>"
+                    f"<b>Porcentaje Recaudado:</b> {porcentaje_recaudado:.1f}%<br>"
+                    f"<b>Estudiantes con Saldo:</b> {estudiantes_con_saldo}"
+                )
+                self.programa_recaudado_label.setToolTip(recaudado_tooltip)
+            else:
                 self.programa_recaudado_label.setText("0.00 Bs")
                 self.programa_recaudado_label.setStyleSheet("color: #95a5a6; font-weight: bold;")
                 self.programa_recaudado_label.setToolTip("No hay transacciones registradas para este programa")
-            
+
+            logger.debug(f"Resumen programa {programa_id}: {total_inscritos} inscritos, {total_recaudado:.2f} recaudado")
+
         except Exception as e:
-            logger.error(f"Error calculando resumen del programa: {e}")
+            logger.error(f"Error calculando resumen del programa: {e}", exc_info=True)
             self.programa_inscritos_label.setText("Error cálculo")
             self.programa_recaudado_label.setText("Error cálculo")
             self.programa_inscritos_label.setToolTip(f"Error al calcular: {str(e)}")
@@ -4129,7 +4817,7 @@ class InscripcionOverlay(BaseOverlay):
     
     def mostrar_resumen_transaccion(self, monto: float, fecha: str, forma_pago: str, 
                                     estado: str, num_detalles: int, num_documentos: int):
-        """Mostrar resumen de la transacción antes de registrar"""
+        """Mostrar resumen de la transacción antes de registrar - VERSIÓN CORREGIDA"""
         try:
             from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QDialogButtonBox
             
@@ -4139,11 +4827,31 @@ class InscripcionOverlay(BaseOverlay):
             
             layout = QVBoxLayout(dialog)
             
-            # Crear texto del resumen
+            # Obtener nombres de forma segura
+            estudiante_nombre = "No disponible"
+            programa_nombre = "No disponible"
+            
+            # CORRECCIÓN: Verificar que estudiante_data no sea None
+            if self.estudiante_data is not None and isinstance(self.estudiante_data, dict):
+                nombres = self.estudiante_data.get('nombres', '')
+                apellido_paterno = self.estudiante_data.get('apellido_paterno', '')
+                estudiante_nombre = f"{nombres} {apellido_paterno}".strip()
+                if not estudiante_nombre:
+                    estudiante_nombre = "No disponible"
+            else:
+                logger.warning("estudiante_data es None o no es dict al mostrar resumen")
+            
+            # CORRECCIÓN: Verificar que programa_data no sea None  
+            if self.programa_data is not None and isinstance(self.programa_data, dict):
+                programa_nombre = self.programa_data.get('nombre', 'No disponible')
+            else:
+                logger.warning("programa_data es None o no es dict al mostrar resumen")
+            
+            # Crear texto del resumen de forma segura
             resumen_text = f"""
             <h3>Resumen de la Transacción</h3>
-            <p><b>Estudiante:</b> {self.estudiante_data.get('nombres', '')} {self.estudiante_data.get('apellido_paterno', '')}</p>
-            <p><b>Programa:</b> {self.programa_data.get('nombre', '')}</p>
+            <p><b>Estudiante:</b> {estudiante_nombre}</p>
+            <p><b>Programa:</b> {programa_nombre}</p>
             <hr>
             <p><b>📅 Fecha de Pago:</b> {fecha}</p>
             <p><b>💰 Monto:</b> {monto:.2f} Bs</p>
@@ -4170,8 +4878,23 @@ class InscripcionOverlay(BaseOverlay):
             return dialog.exec() == QDialog.DialogCode.Accepted
         
         except Exception as e:
-            logger.error(f"Error mostrando resumen: {e}")
-            return True  # Continuar sin resumen si hay error
+            logger.error(f"Error mostrando resumen: {e}", exc_info=True)
+            # Mostrar un diálogo simple de confirmación como fallback
+            return self.mostrar_confirmacion_simple("Registrar Transacción", 
+                                                    f"¿Confirma registrar transacción por {monto:.2f} Bs?")
+    
+    def mostrar_confirmacion_simple(self, titulo: str, mensaje: str):
+        """Mostrar confirmación simple como fallback"""
+        from PySide6.QtWidgets import QMessageBox
+
+        respuesta = QMessageBox.question(
+            self,
+            titulo,
+            mensaje,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        return respuesta == QMessageBox.StandardButton.Yes
     
     def ver_detalles_transaccion(self, transaccion_id: int):
         """Ver detalles de una transacción específica"""
@@ -4640,6 +5363,9 @@ class InscripcionOverlay(BaseOverlay):
         if programa_id:
             self.programa_id = programa_id
         
+        if inscripcion_id:
+            self.inscripcion_id = inscripcion_id
+        
         logger.debug(f"Mostrando formulario - Modo: {modo}, Estudiante ID: {self.estudiante_id}, Programa ID: {self.programa_id}, Inscripción ID: {inscripcion_id}")
         
         # Configurar título según modo
@@ -4648,9 +5374,9 @@ class InscripcionOverlay(BaseOverlay):
             if self.estudiante_id and self.programa_id:
                 titulo = "🎓 Nueva Inscripción"
             elif self.estudiante_id:
-                titulo = "👤 Gestión del Estudiante"
+                titulo = f"👤 Gestión del Estudiante ID: {self.estudiante_id}"
             elif self.programa_id:
-                titulo = "📚 Gestión del Programa"
+                titulo = f"📚 Gestión del Programa ID:{self.programa_id}"
             else:
                 titulo = "🎓 Gestión de Inscripciones"
         elif modo == "editar" and inscripcion_id:
@@ -4665,7 +5391,7 @@ class InscripcionOverlay(BaseOverlay):
             logger.warning("UI no está configurada, llamando a setup_ui_especifica")
             self.setup_ui_especifica()
             self.setup_conexiones_especificas()
-
+        
         # Cargar datos si se proporcionan
         if datos:
             self.cargar_datos(datos)
@@ -4699,6 +5425,8 @@ class InscripcionOverlay(BaseOverlay):
             self.overlay_closed.emit()
     
     # ===== MÉTODOS DEPRECADOS / MANTENIMIENTO =====
+    
+
     
     def calcular_total(self):
         """Calcular el total de la transacción (método antiguo)"""

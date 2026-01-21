@@ -78,6 +78,10 @@ BaseOverlay {
     border: 1px solid #c0392b;
 }
 
+QLabel{
+    height: 35px;
+}
+
 #btn_cancelar:hover {
     background-color: #c0392b;
 }

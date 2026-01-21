@@ -1,6 +1,7 @@
 # Archivo: model/estudiante_model.py - VERSIÓN OPTIMIZADA Y REORGANIZADA
 from config.database import Database
-from typing import List, Dict, Optional, Any, Tuple
+from .base_model import BaseModel
+from typing import List, Dict, Optional, Any, Tuple, Union
 from datetime import date
 import logging
 import json
@@ -8,7 +9,7 @@ import json
 logger = logging.getLogger(__name__)
 
 
-class EstudianteModel:
+class EstudianteModel(BaseModel):
     """Modelo optimizado para manejar operaciones CRUD de estudiantes"""
     
     # ===== CONSTANTES Y CONFIGURACIÓN =====
@@ -135,7 +136,7 @@ class EstudianteModel:
     @staticmethod
     def actualizar_estudiante(estudiante_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Actualizar un estudiante existente usando UPDATE dinámico
+        Actualizar un estudiante existente usando la función PostgreSQL fn_actualizar_estudiante
         
         Args:
             estudiante_id: ID del estudiante a actualizar
@@ -144,87 +145,151 @@ class EstudianteModel:
         Returns:
             Dict con resultado de la operación
         """
+        connection = None
+        cursor = None
         try:
             logger.info(f"DEBUG - Actualizando estudiante ID {estudiante_id} con datos: {data}")
             
-            # Convertir datetime.date a string ISO
-            datos_para_sql = data.copy()
-            for key, value in datos_para_sql.items():
-                if isinstance(value, date):
-                    datos_para_sql[key] = value.isoformat()
-                    logger.info(f"DEBUG - Convertido fecha {key}: {value} -> {datos_para_sql[key]}")
+            # Función para limpiar valores
+            def limpiar_valor(valor):
+                if valor is None:
+                    return None
+                if isinstance(valor, dict):
+                    # Extraer de diccionarios de formularios
+                    if 'value' in valor:
+                        return valor['value']
+                    elif 'checked' in valor:
+                        return valor['checked']
+                    return None
+                if isinstance(valor, str):
+                    return valor.strip() if valor.strip() != '' else None
+                return valor
             
-            # Construir UPDATE dinámico basado en los campos proporcionados
-            campos_actualizar = []
-            params = []
+            # Limpiar todos los valores del diccionario
+            datos_limpios = {}
+            for key, value in data.items():
+                valor_limpio = limpiar_valor(value)
+                if valor_limpio is not None:
+                    datos_limpios[key] = valor_limpio
             
-            # Mapeo de campos de data a columnas de la tabla
+            logger.info(f"DEBUG - Datos limpios: {datos_limpios}")
+            
+            # Mapeo de campos de data a parámetros de la función PostgreSQL
             mapeo_campos = {
-                'ci_numero': 'ci_numero',
-                'ci_expedicion': 'ci_expedicion',
-                'nombres': 'nombres',
-                'apellido_paterno': 'apellido_paterno',
-                'apellido_materno': 'apellido_materno',
-                'fecha_nacimiento': 'fecha_nacimiento',
-                'telefono': 'telefono',
-                'email': 'email',
-                'direccion': 'direccion',
-                'profesion': 'profesion',
-                'universidad': 'universidad',
-                'fotografia_url': 'fotografia_url',
-                'activo': 'activo'
+                'ci_numero': datos_limpios.get('ci_numero'),
+                'ci_expedicion': datos_limpios.get('ci_expedicion'),
+                'nombres': datos_limpios.get('nombres'),
+                'apellido_paterno': datos_limpios.get('apellido_paterno'),
+                'apellido_materno': datos_limpios.get('apellido_materno'),
+                'fecha_nacimiento': datos_limpios.get('fecha_nacimiento'),
+                'telefono': datos_limpios.get('telefono'),
+                'email': datos_limpios.get('email'),
+                'direccion': datos_limpios.get('direccion'),
+                'profesion': datos_limpios.get('profesion'),
+                'universidad': datos_limpios.get('universidad'),
+                'fotografia_url': datos_limpios.get('fotografia_url'),
+                'activo': datos_limpios.get('activo')
             }
             
-            # Agregar solo los campos que están presentes en data
-            for campo_data, campo_db in mapeo_campos.items():
-                if campo_data in data and data[campo_data] is not None:
-                    campos_actualizar.append(f"{campo_db} = %s")
-                    params.append(data[campo_data])
+            # Convertir fecha a string ISO si es date
+            fecha_val = mapeo_campos['fecha_nacimiento']
+            if isinstance(fecha_val, date):
+                fecha_val = fecha_val.isoformat()
+                mapeo_campos['fecha_nacimiento'] = fecha_val
+                logger.info(f"DEBUG - Convertida fecha_nacimiento a ISO: {fecha_val}")
             
-            # Si no hay campos para actualizar
-            if not campos_actualizar:
+            # Convertir activo a booleano si es string
+            activo_val = mapeo_campos['activo']
+            if isinstance(activo_val, str):
+                if activo_val.lower() in ['true', '1', 'yes', 'si', 'on']:
+                    mapeo_campos['activo'] = True
+                elif activo_val.lower() in ['false', '0', 'no', 'off']:
+                    mapeo_campos['activo'] = False
+                else:
+                    mapeo_campos['activo'] = None
+                logger.info(f"DEBUG - Convertido activo string '{activo_val}' a {mapeo_campos['activo']}")
+            
+            # Verificar que haya al menos un campo para actualizar
+            campos_con_valor = [v for v in mapeo_campos.values() if v is not None]
+            
+            if not campos_con_valor:
                 return {
-                    'filas_afectadas': 0,
-                    'mensaje': 'No se proporcionaron datos para actualizar',
-                    'exito': False
+                    'success': False,
+                    'message': 'No se proporcionaron datos para actualizar',
+                    'filas_afectadas': 0
                 }
             
-            # Agregar ID al final de los parámetros
-            params.append(estudiante_id)
+            logger.info(f"DEBUG - Campos a enviar a PostgreSQL: {mapeo_campos}")
             
-            # Construir query final
-            query = f"""
-            UPDATE public.estudiantes 
-            SET {', '.join(campos_actualizar)}, fecha_registro = CURRENT_TIMESTAMP
-            WHERE id = %s
-            """
+            connection = Database.get_connection()
+            if not connection:
+                raise Exception("No se pudo obtener conexión a la base de datos")
             
-            logger.info(f"Actualizando estudiante ID: {estudiante_id}")
+            cursor = connection.cursor()
             
-            # Ejecutar UPDATE
-            filas_afectadas = Database.execute_query(query, tuple(params), fetch_one=True, commit=True)
+            # Llamar a la función PostgreSQL
+            cursor.callproc('fn_actualizar_estudiante', (
+                estudiante_id,
+                mapeo_campos['ci_numero'],
+                mapeo_campos['ci_expedicion'],
+                mapeo_campos['nombres'],
+                mapeo_campos['apellido_paterno'],
+                mapeo_campos['apellido_materno'],
+                mapeo_campos['fecha_nacimiento'],
+                mapeo_campos['telefono'],
+                mapeo_campos['email'],
+                mapeo_campos['direccion'],
+                mapeo_campos['profesion'],
+                mapeo_campos['universidad'],
+                mapeo_campos['fotografia_url'],
+                mapeo_campos['activo']
+            ))
             
-            if filas_afectadas and filas_afectadas > 0:
-                logger.info(f"✅ Estudiante actualizado - Filas afectadas: {filas_afectadas}")
+            # La función devuelve una tabla: (filas_afectadas, mensaje, exito)
+            result = cursor.fetchone()
+            connection.commit()
+            
+            logger.info(f"DEBUG - Resultado bruto de PostgreSQL: {result}")
+            
+            if result and len(result) >= 3:
+                filas_afectadas, mensaje, exito = result[0], result[1], result[2]
+                logger.info(f"DEBUG - Parseado: filas={filas_afectadas}, mensaje='{mensaje}', exito={exito}")
+                
                 return {
-                    'filas_afectadas': filas_afectadas,
-                    'mensaje': 'Estudiante actualizado exitosamente',
-                    'exito': True
+                    'success': bool(exito),
+                    'message': str(mensaje),
+                    'filas_afectadas': int(filas_afectadas) if filas_afectadas else 0,
+                    'data': {
+                        'estudiante_id': estudiante_id,
+                        **datos_limpios
+                    }
                 }
-            
-            return {
-                'filas_afectadas': 0,
-                'mensaje': 'No se encontró el estudiante o no hubo cambios',
-                'exito': False
-            }
-            
+            else:
+                logger.error(f"DEBUG - Resultado inesperado de PostgreSQL: {result}")
+                return {
+                    'success': False,
+                    'message': 'Respuesta inesperada de la base de datos',
+                    'filas_afectadas': 0
+                }
+                
         except Exception as e:
-            logger.error(f"❌ Error actualizando estudiante: {e}")
+            logger.error(f"❌ Error actualizando estudiante {estudiante_id}: {e}")
+            if connection:
+                connection.rollback()
             return {
-                'filas_afectadas': 0,
-                'mensaje': f'Error al actualizar estudiante: {str(e)}',
-                'exito': False
+                'success': False,
+                'message': f'Error al actualizar estudiante: {str(e)}',
+                'filas_afectadas': 0
             }
+        finally:
+            try:
+                if 'cursor' in locals() and cursor:
+                    cursor.close()
+            except Exception as e:
+                logger.error(f"Error cerrando cursor: {e}")
+                
+            if connection:
+                Database.return_connection(connection)
     
     @staticmethod
     def obtener_estudiante_por_id(estudiante_id: int) -> Optional[Dict[str, Any]]:
@@ -353,9 +418,9 @@ class EstudianteModel:
         try:
             query = """
             SELECT id, ci_numero, ci_expedicion, nombres, apellido_paterno, 
-                   apellido_materno, fecha_nacimiento, telefono, email, 
-                   direccion, profesion, universidad, fotografia_url, 
-                   activo, fecha_registro
+                apellido_materno, fecha_nacimiento, telefono, email, 
+                direccion, profesion, universidad, fotografia_url, 
+                activo, fecha_registro
             FROM public.estudiantes 
             WHERE 1=1
             """
@@ -520,35 +585,64 @@ class EstudianteModel:
         Returns:
             Dict con resultado de la operación
         """
+        connection = None
+        cursor = None
         try:
+            logger.info(f"🔧 DEBUG - Iniciando eliminación de estudiante ID: {estudiante_id}")
+            
+            connection = Database.get_connection()
+            if not connection:
+                raise Exception("No se pudo obtener conexión a la base de datos")
+            
+            cursor = connection.cursor()
+            
             # Usar función almacenada para eliminar/desactivar
-            query = "SELECT * FROM fn_eliminar_estudiante(%s)"
-            params = (estudiante_id,)
+            cursor.callproc('fn_eliminar_estudiante', (estudiante_id,))
             
-            result = Database.execute_query(query, params, fetch_one=True)
+            # Obtener resultado
+            result = cursor.fetchone()
+            connection.commit()
             
-            if result:
-                filas_afectadas, mensaje, exito = result
-                logger.info(f"Estudiante eliminado/desactivado: ID {estudiante_id}")
+            logger.info(f"🔧 DEBUG - Resultado bruto de PostgreSQL: {result}")
+            
+            if result and len(result) >= 3:
+                filas_afectadas, mensaje, exito = result[0], result[1], result[2]
+                logger.info(f"✅ RESULTADO - filas={filas_afectadas}, mensaje='{mensaje}', exito={exito}")
+                
                 return {
-                    'filas_afectadas': filas_afectadas,
-                    'mensaje': mensaje,
-                    'exito': exito
+                    'success': bool(exito),
+                    'filas_afectadas': int(filas_afectadas) if filas_afectadas else 0,
+                    'mensaje': str(mensaje),
+                    'exito': bool(exito)
                 }
-            
-            return {
-                'filas_afectadas': 0,
-                'mensaje': 'Estudiante no encontrado',
-                'exito': False
-            }
-            
+            else:
+                logger.error(f"❌ Resultado inesperado: {result}")
+                return {
+                    'success': False,
+                    'filas_afectadas': 0,
+                    'mensaje': 'Error: respuesta inesperada de la base de datos',
+                    'exito': False
+                }
+                
         except Exception as e:
-            logger.error(f"Error eliminando estudiante: {e}")
+            logger.error(f"❌ Error eliminando estudiante {estudiante_id}: {e}", exc_info=True)
+            if connection:
+                connection.rollback()
             return {
+                'success': False,
                 'filas_afectadas': 0,
                 'mensaje': f'Error al eliminar estudiante: {str(e)}',
                 'exito': False
             }
+        finally:
+            try:
+                if 'cursor' in locals() and cursor:
+                    cursor.close()
+            except Exception as e:
+                logger.error(f"Error cerrando cursor: {e}")
+                
+            if connection:
+                Database.return_connection(connection)
     
     @staticmethod
     def activar_estudiante(estudiante_id: int) -> Dict[str, Any]:
@@ -1118,3 +1212,130 @@ class EstudianteModel:
     def obtener_activos() -> List[Dict[str, Any]]:
         """Método de compatibilidad para obtener activos"""
         return EstudianteModel.obtener_estudiantes_activos()
+    
+    @staticmethod
+    def obtener_estudiantes_disponibles_programa(programa_id: int) -> Dict[str, Any]:
+        """
+        Obtiene estudiantes disponibles para un programa específico
+        
+        Args:
+            programa_id: ID del programa
+            
+        Returns:
+            Dict con los datos de los estudiantes disponibles
+        """
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                return {'success': False, 'message': 'Error de conexión a la base de datos'}
+            
+            cursor = connection.cursor()
+            
+            # Llamar a la función de la base de datos
+            cursor.execute("SELECT * FROM fn_estudiantes_disponibles_programa(%s)", (programa_id,))
+            estudiantes = cursor.fetchall()
+            
+            if cursor.description:
+                column_names = [desc[0] for desc in cursor.description]
+                estudiantes_list = []
+                for estudiante in estudiantes:
+                    estudiantes_list.append(dict(zip(column_names, estudiante)))
+                
+                return {
+                    'success': True,
+                    'data': estudiantes_list,
+                    'count': len(estudiantes_list)
+                }
+            else:
+                return {
+                    'success': True,
+                    'data': [],
+                    'count': 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Error al obtener estudiantes disponibles para programa {programa_id}: {e}")
+            return {
+                'success': False,
+                'message': f'Error al buscar estudiantes: {str(e)}'
+            }
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+    
+    @staticmethod
+    def buscar_estudiantes_disponibles_programa_criterios(programa_id: int, criterios: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Busca estudiantes disponibles para un programa con criterios de búsqueda
+        
+        Args:
+            programa_id: ID del programa
+            criterios: Términos de búsqueda separados por espacios
+            
+        Returns:
+            Dict con los datos de los estudiantes encontrados
+        """
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                return {'success': False, 'message': 'Error de conexión a la base de datos'}
+            
+            cursor = connection.cursor()
+            
+            # Llamar a la función de búsqueda de la base de datos
+            if criterios and criterios.strip():
+                cursor.execute(
+                    "SELECT * FROM fn_buscar_estudiantes_disponibles_programa_criterios(%s, %s)",
+                    (programa_id, criterios.strip())
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM fn_estudiantes_disponibles_programa(%s)",
+                    (programa_id,)
+                )
+            
+            estudiantes = cursor.fetchall()
+            
+            if cursor.description:
+                column_names = [desc[0] for desc in cursor.description]
+                estudiantes_list = []
+                for estudiante in estudiantes:
+                    estudiantes_list.append(dict(zip(column_names, estudiante)))
+                
+                return {
+                    'success': True,
+                    'data': estudiantes_list,
+                    'count': len(estudiantes_list)
+                }
+            else:
+                return {
+                    'success': True,
+                    'data': [],
+                    'count': 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Error al buscar estudiantes para programa {programa_id}: {e}")
+            return {
+                'success': False,
+                'message': f'Error al buscar estudiantes: {str(e)}'
+            }
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)

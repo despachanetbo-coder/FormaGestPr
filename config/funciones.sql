@@ -2911,3 +2911,166 @@ BEGIN
 END;
 $procedure$
 ;
+
+-- Función para obtener estudiantes disponibles para un programa específico
+CREATE OR REPLACE FUNCTION fn_estudiantes_disponibles_programa(p_programa_id INTEGER)
+RETURNS TABLE (
+    estudiante_id INTEGER,
+    ci_completo TEXT,
+    estudiante_nombre TEXT,
+    nombres VARCHAR(100),
+    apellido_paterno VARCHAR(100),
+    apellido_materno VARCHAR(100),
+    email VARCHAR(100),
+    telefono VARCHAR(20),
+    profesion VARCHAR(100),
+    universidad VARCHAR(200)
+) 
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        e.id AS estudiante_id,
+        CONCAT(e.ci_numero, '-', e.ci_expedicion) AS ci_completo,
+        TRIM(
+            CONCAT(
+                e.apellido_paterno, 
+                ' ', 
+                COALESCE(e.apellido_materno, ''), 
+                ' ', 
+                e.nombres
+            )
+        ) AS estudiante_nombre,
+        e.nombres,
+        e.apellido_paterno,
+        e.apellido_materno,
+        e.email,
+        e.telefono,
+        e.profesion,
+        e.universidad
+    FROM estudiantes e
+    WHERE e.activo = TRUE
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM inscripciones i 
+            WHERE i.estudiante_id = e.id 
+                AND i.programa_id = p_programa_id
+                AND i.estado NOT IN ('RETIRADO')
+        )
+    ORDER BY e.apellido_paterno, e.apellido_materno, e.nombres;
+END;
+$$;
+
+-- Función para buscar estudiantes disponibles con múltiples criterios de búsqueda
+CREATE OR REPLACE FUNCTION fn_buscar_estudiantes_disponibles_programa_criterios(
+    p_programa_id INTEGER,
+    p_criterios TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+    estudiante_id INTEGER,
+    ci_completo TEXT,
+    estudiante_nombre TEXT,
+    nombres VARCHAR(100),
+    apellido_paterno VARCHAR(100),
+    apellido_materno VARCHAR(100),
+    email VARCHAR(100),
+    telefono VARCHAR(20),
+    profesion VARCHAR(100),
+    universidad VARCHAR(200)
+) 
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_terminos TEXT[];
+    v_term TEXT;
+BEGIN
+    -- Inicializar array de términos si hay criterios
+    IF p_criterios IS NOT NULL AND TRIM(p_criterios) != '' THEN
+        -- Separar por espacios y limpiar términos vacíos
+        v_terminos := ARRAY(
+            SELECT DISTINCT LOWER(TRIM(UNNEST(string_to_array(p_criterios, ' '))))
+            WHERE TRIM(UNNEST(string_to_array(p_criterios, ' '))) != ''
+        );
+    ELSE
+        v_terminos := '{}'::TEXT[];
+    END IF;
+    
+    RETURN QUERY
+    SELECT 
+        e.id AS estudiante_id,
+        CONCAT(e.ci_numero, '-', e.ci_expedicion) AS ci_completo,
+        TRIM(
+            CONCAT(
+                e.apellido_paterno, 
+                ' ', 
+                COALESCE(e.apellido_materno, ''), 
+                ' ', 
+                e.nombres
+            )
+        ) AS estudiante_nombre,
+        e.nombres,
+        e.apellido_paterno,
+        e.apellido_materno,
+        e.email,
+        e.telefono,
+        e.profesion,
+        e.universidad
+    FROM estudiantes e
+    WHERE e.activo = TRUE
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM inscripciones i 
+            WHERE i.estudiante_id = e.id 
+                AND i.programa_id = p_programa_id
+                AND i.estado NOT IN ('RETIRADO')
+        )
+        AND (
+            -- Si no hay criterios, devolver todos los estudiantes disponibles
+            CARDINALITY(v_terminos) = 0
+            OR 
+            -- Si hay criterios, buscar en múltiples campos
+            EXISTS (
+                SELECT 1
+                FROM UNNEST(v_terminos) AS termino
+                WHERE (
+                    -- Búsqueda en CI (sin guión)
+                    e.ci_numero ILIKE '%' || termino || '%'
+                    -- Búsqueda en CI completo (con guión)
+                    OR CONCAT(e.ci_numero, '-', e.ci_expedicion) ILIKE '%' || termino || '%'
+                    -- Búsqueda en nombres
+                    OR e.nombres ILIKE '%' || termino || '%'
+                    -- Búsqueda en apellido paterno
+                    OR e.apellido_paterno ILIKE '%' || termino || '%'
+                    -- Búsqueda en apellido materno
+                    OR e.apellido_materno ILIKE '%' || termino || '%'
+                    -- Búsqueda en nombre completo (formateado)
+                    OR CONCAT(e.apellido_paterno, ' ', COALESCE(e.apellido_materno, ''), ' ', e.nombres) 
+                       ILIKE '%' || termino || '%'
+                    -- Búsqueda en email
+                    OR e.email ILIKE '%' || termino || '%'
+                    -- Búsqueda en teléfono
+                    OR e.telefono ILIKE '%' || termino || '%'
+                    -- Búsqueda en profesión
+                    OR e.profesion ILIKE '%' || termino || '%'
+                    -- Búsqueda en universidad
+                    OR e.universidad ILIKE '%' || termino || '%'
+                )
+            )
+        )
+    ORDER BY 
+        CASE 
+            -- Priorizar resultados que coincidan con más campos
+            WHEN CARDINALITY(v_terminos) = 0 THEN 1
+            WHEN e.ci_numero ILIKE ANY(SELECT '%' || term || '%' FROM UNNEST(v_terminos) term) THEN 1
+            WHEN e.apellido_paterno ILIKE ANY(SELECT '%' || term || '%' FROM UNNEST(v_terminos) term) THEN 2
+            WHEN e.apellido_materno ILIKE ANY(SELECT '%' || term || '%' FROM UNNEST(v_terminos) term) THEN 3
+            WHEN e.nombres ILIKE ANY(SELECT '%' || term || '%' FROM UNNEST(v_terminos) term) THEN 4
+            ELSE 5
+        END,
+        e.apellido_paterno, 
+        e.apellido_materno, 
+        e.nombres
+    LIMIT 100; -- Limitar resultados para evitar sobrecarga
+END;
+$$;

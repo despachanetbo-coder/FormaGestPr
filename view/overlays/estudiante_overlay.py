@@ -934,9 +934,7 @@ class EstudianteOverlay(BaseOverlay):
                 # 5. Si la foto se copió pero no se pudo incluir en la creación,
                 # intentar actualizar como fallback
                 if ruta_foto and not datos_bd.get('fotografia_url'):
-                    EstudianteModel.actualizar_estudiante(estudiante_id, {
-                        'fotografia_url': ruta_foto
-                    })
+                    EstudianteModel.actualizar_estudiante(estudiante_id, {'fotografia_url': ruta_foto})
                 
                 resultado['data']['estudiante_id'] = estudiante_id
                 
@@ -1022,16 +1020,61 @@ class EstudianteOverlay(BaseOverlay):
             }
     
     def _on_ver_inscripciones(self):
-        """Manejador para ver inscripciones del estudiante"""
+        """Manejador simplificado para ver inscripciones del estudiante"""
         if not self.estudiante_id:
+            self.mostrar_mensaje("Error", "No hay estudiante seleccionado", "error")
             return
         
-        self.mostrar_mensaje(
-            "Inscripciones", 
-            f"Funcionalidad para ver inscripciones del estudiante ID: {self.estudiante_id}\n\n"
-            "Esta funcionalidad estará disponible en futuras actualizaciones.",
-            "info"
-        )
+        try:
+            # OPCIÓN MÁS SIMPLE: Usar self como parent (debería funcionar)
+            # Los overlays son widgets modales/dialogos, pueden tener self como parent
+            from view.overlays.inscripcion_overlay import InscripcionOverlay
+            
+            # Crear el overlay usando self como parent
+            inscripcion_overlay = InscripcionOverlay(self)
+            
+            # Configurar
+            inscripcion_overlay.show_form(
+                solo_lectura=False,
+                modo="nuevo",
+                estudiante_id=self.estudiante_id
+            )
+            
+            # Ocultar este overlay
+            self.hide()
+            
+            # Conectar para volver cuando se cierre el overlay de inscripciones
+            def volver_a_estudiante():
+                self.show()
+                if inscripcion_overlay:
+                    try:
+                        inscripcion_overlay.deleteLater()
+                    except:
+                        pass
+                    
+            # Usar la señal si existe, si no usar destroyed
+            if hasattr(inscripcion_overlay, 'overlay_closed'):
+                inscripcion_overlay.overlay_closed.connect(volver_a_estudiante)
+            else:
+                inscripcion_overlay.destroyed.connect(lambda: self.show())
+            
+            # Mostrar el nuevo overlay
+            inscripcion_overlay.show()
+            
+            logger.debug(f"✅ InscripcionOverlay mostrado para estudiante {self.estudiante_id}")
+            
+        except Exception as e:
+            logger.error(f"Error al mostrar inscripciones: {e}", exc_info=True)
+            self.mostrar_mensaje("Error", f"Error al abrir inscripciones: {str(e)[:100]}", "error")
+    
+    def _get_main_window(self):
+        """Obtener la ventana principal (main window)"""
+        # Buscar recursivamente el widget principal
+        parent = self.parent()
+        while parent and not hasattr(parent, 'is_main_window'):
+            parent = parent.parent()
+            
+        return parent if parent else None
     
     def _on_ver_pagos(self):
         """Manejador para ver historial de pagos"""
@@ -1052,7 +1095,7 @@ class EstudianteOverlay(BaseOverlay):
         
         self.set_modo("editar", self.estudiante_id)
     
-    def show_form(self, solo_lectura=False):
+    def show_form(self, solo_lectura=False, datos_estudiante=None, estudiante_id=None):
         """Mostrar el overlay"""
         # Configurar según modo
         if self.modo == "visualizar":
