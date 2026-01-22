@@ -8,6 +8,7 @@ from .inscripcion_model import InscripcionModel
 from .empresa_model import EmpresaModel
 from .configuraciones_model import ConfiguracionesModel
 from .usuarios_model import UsuariosModel
+from .resumen_model import ResumenModel
 __all__=[
     "BaseModel",
     "DataModel",
@@ -18,4 +19,5 @@ __all__=[
     "EmpresaModel",
     "ConfiguracionesModel",
     "UsuariosModel",
+    'ResumenModel',
 ]

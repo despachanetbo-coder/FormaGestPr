@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 
 class BaseModel(QObject):
     """Clase base para todos los modelos de datos"""
-    db = Database()
+    # Usar get_instance() en lugar de crear una nueva instancia directamente
+    db = Database.get_instance()
     data_changed = Signal(dict)
     error_occurred = Signal(str)
     

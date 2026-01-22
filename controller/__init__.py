@@ -9,6 +9,7 @@ from .inscripcion_controller import InscripcionController
 from .empresa_controller import EmpresaController
 from .configuraciones_controller import ConfiguracionesController
 from .usuarios_controller import UsuariosController
+from .resumen_controller import ResumenController
 __all__=[
     "BaseController",
     "AuthController",
@@ -20,4 +21,5 @@ __all__=[
     "EmpresaController",
     "ConfiguracionesController",
     "UsuariosController",
+    'ResumenController',
 ]

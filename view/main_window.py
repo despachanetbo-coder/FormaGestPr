@@ -12,6 +12,7 @@ from PySide6.QtGui import QResizeEvent
 # Importar MainTab y las pestañas concretas
 from .tabs.base_tab import BaseTab
 from .tabs.inicio_tab import InicioTab
+from .tabs.resumen_tab import ResumenTab
 
 # Importar controladores
 from controller.programa_controller import ProgramaController
@@ -108,12 +109,7 @@ class MainWindow(QMainWindow):
         self._add_tab_to_widget(analisis_tab, 1)
         
         # Pestaña 4: Reportes
-        reportes_tab = self._create_basic_tab(
-            "reportes_tab", 
-            "📊 Reportes", 
-            "Generación y visualización de reportes",
-            user_data=self.user_data  # Pasar user_data
-        )
+        reportes_tab = ResumenTab(user_data=self.user_data)
         self._add_tab_to_widget(reportes_tab, 2)
         
         # Pestaña 5: Configuración

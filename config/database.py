@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 class Database:
     """Clase para manejar la conexión a PostgreSQL"""
     
+    _instance = None
     _connection_pool = None
     _config = {
         'host': 'localhost',
@@ -18,6 +19,20 @@ class Database:
         'user': 'postgres',
         'password': 'Despachanet'
     }
+    
+    def __init__(self):
+        """Constructor privado para Singleton"""
+        raise RuntimeError('Usa get_instance() en lugar de esto')
+    
+    @classmethod
+    def get_instance(cls):
+        """Obtener instancia única del Singleton"""
+        if cls._instance is None:
+            cls._instance = cls.__new__(cls)
+            # Inicializar el pool si no está inicializado
+            if cls._connection_pool is None:
+                cls.initialize_pool()
+        return cls._instance
     
     @classmethod
     def initialize_pool(cls, min_connections=1, max_connections=10):
