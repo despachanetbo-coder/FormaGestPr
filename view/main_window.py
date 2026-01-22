@@ -13,6 +13,7 @@ from PySide6.QtGui import QResizeEvent
 from .tabs.base_tab import BaseTab
 from .tabs.inicio_tab import InicioTab
 from .tabs.resumen_tab import ResumenTab
+from .tabs.ayuda_tab import AyudaTab
 
 # Importar controladores
 from controller.programa_controller import ProgramaController
@@ -122,12 +123,7 @@ class MainWindow(QMainWindow):
         self._add_tab_to_widget(config_tab, 3)
         
         # Pestaña 6: Ayuda
-        ayuda_tab = self._create_basic_tab(
-            "ayuda_tab", 
-            "❓ Ayuda", 
-            "Documentación y soporte técnico",
-            user_data=self.user_data  # Pasar user_data
-        )
+        ayuda_tab = AyudaTab(user_data=self.user_data)
         self._add_tab_to_widget(ayuda_tab, 4)
 
     def _add_tab_to_widget(self, tab: BaseTab, index: int) -> None:
