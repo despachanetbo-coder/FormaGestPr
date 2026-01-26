@@ -528,7 +528,6 @@ class InscripcionModel:
     def obtener_programas_inscritos_estudiante(estudiante_id: int) -> List[Dict]:
         """Obtener todos los programas en los que un estudiante está inscrito"""
         try:
-            from config.database import Database
             connection = Database.get_connection()
             if not connection:
                 return []
@@ -536,41 +535,53 @@ class InscripcionModel:
             cursor = connection.cursor()
             query = """
             SELECT 
-                i.id as inscripcion_id,
-                p.id as programa_id,
-                p.codigo,
-                p.nombre,
+                i.id,
+                i.estudiante_id,
+                i.programa_id,
+                i.fecha_inscripcion,
+                i.estado,
+                i.descuento_aplicado,
+                i.observaciones,
+                p.codigo as programa_codigo,
+                p.nombre as programa_nombre,
                 p.costo_total,
                 p.costo_matricula,
                 p.costo_inscripcion,
                 p.costo_mensualidad,
                 p.numero_cuotas,
-                i.estado as estado_inscripcion,
-                i.fecha_inscripcion,
-                i.descuento_aplicado
+                CONCAT(e.nombres, ' ', e.apellido_paterno, ' ', COALESCE(e.apellido_materno, '')) as estudiante_nombre,
+                e.ci_numero,
+                e.ci_expedicion
             FROM inscripciones i
             JOIN programas p ON i.programa_id = p.id
+            JOIN estudiantes e ON i.estudiante_id = e.id
             WHERE i.estudiante_id = %s 
-            AND i.estado NOT IN ('RETIRADO')
+            AND i.estado != 'RETIRADO'
             ORDER BY i.fecha_inscripcion DESC
             """
             
             cursor.execute(query, (estudiante_id,))
             resultados = cursor.fetchall()
             
-            programas = []
-            column_names = [desc[0] for desc in cursor.description]
-            
-            for row in resultados:
-                programa = dict(zip(column_names, row))
-                programas.append(programa)
-            
-            cursor.close()
-            Database.return_connection(connection)
-            return programas
-            
+            if resultados:
+                column_names = [desc[0] for desc in cursor.description]
+                inscripciones = []
+                for row in resultados:
+                    inscripcion = dict(zip(column_names, row))
+                    # Asegurarnos de que el ID sea válido
+                    if inscripcion.get('id'):
+                        inscripciones.append(inscripcion)
+                
+                cursor.close()
+                Database.return_connection(connection)
+                return inscripciones
+            else:
+                cursor.close()
+                Database.return_connection(connection)
+                return []
+                
         except Exception as e:
-            logger.error(f"Error obteniendo programas inscritos del estudiante: {e}")
+            logger.error(f"Error obteniendo programas inscritos para estudiante {estudiante_id}: {e}")
             return []
     
     @staticmethod

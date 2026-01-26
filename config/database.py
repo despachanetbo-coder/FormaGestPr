@@ -35,6 +35,11 @@ class Database:
         return cls._instance
     
     @classmethod
+    def get_db_config(cls):
+        """Obtener configuración de la base de datos"""
+        return cls._config.copy()
+    
+    @classmethod
     def initialize_pool(cls, min_connections=1, max_connections=10):
         """Inicializar el pool de conexiones"""
         try:

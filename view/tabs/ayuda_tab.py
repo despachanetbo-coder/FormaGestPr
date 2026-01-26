@@ -20,7 +20,7 @@ from typing import Dict, List, Any, Optional
 # PySide6 imports
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QFrame, QPushButton, QGroupBox,
+    QLabel, QFrame, QPushButton, QGroupBox, QTabWidget,
     QSizePolicy, QScrollArea, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QSplitter, QMessageBox, QComboBox,
@@ -319,10 +319,10 @@ class HelpCard(AnimatedCard):
     clicked = Signal(str)
     
     def __init__(self, title: str, description: str, icon: str, 
-                 color: str, action_text: str = "", 
-                 action_type: str = "internal", action_target: str = "",
-                 min_height: int = 150, max_height: int = 160,
-                 card_id: str = "", parent=None):
+                color: str, action_text: str = "", 
+                action_type: str = "internal", action_target: str = "",
+                min_height: int = 150, max_height: int = 160,
+                card_id: str = "", parent=None):
         
         self.title = title
         self.description = description
@@ -470,7 +470,6 @@ class HelpCard(AnimatedCard):
             #HelpCard_{self.card_id}:hover {{
                 border: 2px solid {self.color};
                 background-color: #f8f9fa;
-                cursor: pointer;
             }}
         """)
         
@@ -534,7 +533,7 @@ class AyudaTab(BaseTab):
         self.set_user_info(nombre_usuario, rol_usuario)
         
         # Configurar gradiente personalizado (azul oscuro)
-        self.set_header_gradient("#2c3e50", "#34495e", "#2c3e50")
+        #self.set_header_gradient("#2c3e50", "#34495e", "#2c3e50")
         
         # Inicializar UI
         self._init_ui()
@@ -556,6 +555,7 @@ class AyudaTab(BaseTab):
         # Layout principal con scroll
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        scroll_area.setMinimumHeight(600)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setStyleSheet("""
             QScrollArea {
@@ -698,7 +698,6 @@ class AyudaTab(BaseTab):
             }
             QPushButton:disabled {
                 background-color: #95a5a6;
-                cursor: not-allowed;
             }
         """)
         self.btn_check_updates.clicked.connect(self.check_for_updates)
@@ -721,7 +720,6 @@ class AyudaTab(BaseTab):
             }
             QPushButton:disabled {
                 background-color: #95a5a6;
-                cursor: not-allowed;
             }
         """)
         self.btn_update_now.clicked.connect(self.start_update)
@@ -1137,7 +1135,6 @@ class AyudaTab(BaseTab):
             }
             QPushButton:disabled {
                 background-color: #95a5a6;
-                cursor: not-allowed;
             }
         """)
         self.btn_start_update_page.clicked.connect(self.start_update)
@@ -1158,7 +1155,6 @@ class AyudaTab(BaseTab):
             }
             QPushButton:disabled {
                 background-color: #95a5a6;
-                cursor: not-allowed;
             }
         """)
         self.btn_cancel_update.clicked.connect(self.cancel_update)
