@@ -33,6 +33,7 @@ from model.programa_model import ProgramaModel
 from model.transaccion_model import TransaccionModel
 
 from .base_overlay import BaseOverlay
+from view.overlays.transaccion_overlay import TransaccionOverlay
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -580,20 +581,29 @@ class InscripcionOverlay(BaseOverlay):
         # Conexiones para búsqueda de estudiante
         if self.btn_buscar_estudiante:
             self.btn_buscar_estudiante.clicked.connect(self.buscar_estudiante)
-        
+            
         if self.busqueda_estudiante_input:
             self.busqueda_estudiante_input.returnPressed.connect(self.buscar_estudiante)
-        
+            # También conectar textChanged para búsqueda en tiempo real (opcional)
+            # self.busqueda_estudiante_input.textChanged.connect(self.buscar_estudiante_automatico)
+            
         # Conexiones para selección de programa
         if self.programa_combo:
             self.programa_combo.currentIndexChanged.connect(self.actualizar_boton_seleccion_programa)
-        
+            
         if self.btn_seleccionar_programa:
             self.btn_seleccionar_programa.clicked.connect(self.seleccionar_programa_desde_combo)
-        
+            
         # Conexiones para nueva inscripción
         if self.btn_crear_inscripcion:
             self.btn_crear_inscripcion.clicked.connect(self.crear_nueva_inscripcion)
+            
+        # Asegurar que los botones base tengan conexión
+        if self.btn_cancelar:
+            self.btn_cancelar.clicked.connect(self.close_overlay)
+            
+        # Debug: Verificar conexiones
+        logger.debug("✅ Conexiones específicas configuradas")
     
     # ===== MÉTODOS PARA SELECCIÓN DE ESTUDIANTE =====
     
@@ -604,7 +614,7 @@ class InscripcionOverlay(BaseOverlay):
             if not criterio:
                 self.mostrar_mensaje("Advertencia", "Ingrese un criterio de búsqueda", "warning")
                 return
-
+            
             # Limpiar lista anterior
             if self.estudiantes_list_layout:
                 while self.estudiantes_list_layout.count():
@@ -612,25 +622,80 @@ class InscripcionOverlay(BaseOverlay):
                     widget = child.widget()
                     if widget:
                         widget.deleteLater()
-
+                        
             self.estudiantes_encontrados = []
-
-            # Opción 1: Usar el método buscar_estudiantes() existente
-            # El método busca por CI, expedición o nombre
-            resultados = EstudianteModel.buscar_estudiantes(
-                ci_numero=criterio if criterio.isdigit() else None,
-                ci_expedicion=None,  # O puedes intentar extraer de "1234567-LP"
-                nombre=criterio if not criterio.isdigit() else None
-            )
-
-            # Opción 2: Si necesitas búsqueda más flexible
-            # resultados = EstudianteModel.buscar_estudiantes_completo(
-            #     ci_numero=criterio,
-            #     nombres=criterio,
-            #     apellido_paterno=criterio,
-            #     apellido_materno=criterio
-            # )
-
+            
+            # Intentar buscar por diferentes criterios
+            resultados = []
+            
+            # Si el criterio es numérico (posible CI)
+            if criterio.isdigit():
+                resultados = EstudianteModel.buscar_estudiantes(
+                    ci_numero=criterio
+                )
+                
+            # Si no hay resultados o es texto
+            if not resultados:
+                # Dividir por espacios para buscar nombre/apellidos
+                partes = criterio.split()
+                
+                if len(partes) >= 2:
+                    # Asumir que son nombre y apellido
+                    nombre = ' '.join(partes[:-1])
+                    apellido = partes[-1]
+                    
+                    # Buscar por nombre completo
+                    from config.database import Database
+                    connection = Database.get_connection()
+                    if connection:
+                        cursor = connection.cursor()
+                        query = """
+                        SELECT * FROM estudiantes 
+                        WHERE (nombres ILIKE %s OR apellido_paterno ILIKE %s OR apellido_materno ILIKE %s)
+                        OR (nombres ILIKE %s AND apellido_paterno ILIKE %s)
+                        LIMIT 50
+                        """
+                        cursor.execute(query, (
+                            f'%{criterio}%', f'%{criterio}%', f'%{criterio}%',
+                            f'%{nombre}%', f'%{apellido}%'
+                        ))
+                        
+                        resultados_raw = cursor.fetchall()
+                        if resultados_raw:
+                            column_names = [desc[0] for desc in cursor.description]
+                            resultados = [dict(zip(column_names, row)) for row in resultados_raw]
+                            
+                        cursor.close()
+                        Database.return_connection(connection)
+                else:
+                    # Búsqueda simple por cualquier campo
+                    from config.database import Database
+                    connection = Database.get_connection()
+                    if connection:
+                        cursor = connection.cursor()
+                        query = """
+                        SELECT * FROM estudiantes 
+                        WHERE nombres ILIKE %s 
+                        OR apellido_paterno ILIKE %s 
+                        OR apellido_materno ILIKE %s
+                        OR email ILIKE %s
+                        OR telefono ILIKE %s
+                        OR CONCAT(ci_numero, '-', ci_expedicion) ILIKE %s
+                        LIMIT 50
+                        """
+                        cursor.execute(query, (
+                            f'%{criterio}%', f'%{criterio}%', f'%{criterio}%',
+                            f'%{criterio}%', f'%{criterio}%', f'%{criterio}%'
+                        ))
+                        
+                        resultados_raw = cursor.fetchall()
+                        if resultados_raw:
+                            column_names = [desc[0] for desc in cursor.description]
+                            resultados = [dict(zip(column_names, row)) for row in resultados_raw]
+                            
+                        cursor.close()
+                        Database.return_connection(connection)
+                        
             if not resultados:
                 no_data_label = QLabel("❌ No se encontraron estudiantes")
                 no_data_label.setStyleSheet("""
@@ -643,17 +708,17 @@ class InscripcionOverlay(BaseOverlay):
                 if self.estudiantes_list_layout:
                     self.estudiantes_list_layout.addWidget(no_data_label)
                 return
-
+            
             self.estudiantes_encontrados = resultados
-
+            
             # Crear tarjetas para cada estudiante encontrado
             for estudiante in resultados:
                 tarjeta = self.crear_tarjeta_estudiante(estudiante)
                 if tarjeta and self.estudiantes_list_layout:
                     self.estudiantes_list_layout.addWidget(tarjeta)
-
+                    
             logger.debug(f"✅ Estudiantes encontrados: {len(resultados)}")
-
+            
         except Exception as e:
             logger.error(f"Error buscando estudiantes: {e}")
             self.mostrar_mensaje("Error", f"Error al buscar estudiantes: {str(e)}", "error")
@@ -884,12 +949,12 @@ class InscripcionOverlay(BaseOverlay):
             if not self.estudiante_id or not self.programa_id:
                 self.mostrar_mensaje("Error", "Falta seleccionar estudiante o programa", "error")
                 return
-
+            
             # Obtener datos del formulario
             fecha_inscripcion = self.fecha_inscripcion_input.date().toString("yyyy-MM-dd")  # type: ignore
             descuento_str = self.descuento_input.text().strip()  # type: ignore
             observaciones = self.observaciones_input.toPlainText().strip()  # type: ignore
-
+            
             # Validar descuento
             try:
                 descuento = float(descuento_str) if descuento_str else 0.0
@@ -899,7 +964,7 @@ class InscripcionOverlay(BaseOverlay):
             except ValueError:
                 self.mostrar_mensaje("Error", "El descuento debe ser un número válido", "error")
                 return
-
+            
             # Crear la inscripción
             datos_inscripcion = {
                 'estudiante_id': self.estudiante_id,
@@ -909,7 +974,7 @@ class InscripcionOverlay(BaseOverlay):
                 'fecha_inscripcion': fecha_inscripcion,
                 'estado': 'PREINSCRITO'
             }
-
+            
             resultado = InscripcionModel.crear_inscripcion(
                 estudiante_id = self.estudiante_id,
                 programa_id = self.programa_id,
@@ -917,7 +982,7 @@ class InscripcionOverlay(BaseOverlay):
                 observaciones = observaciones,
                 fecha_inscripcion = fecha_inscripcion
             )
-
+            
             if resultado.get('success'):
                 self.inscripcion_id = resultado.get('id')
                 self.mostrar_mensaje("Éxito", "Inscripción creada exitosamente", "success")
@@ -927,7 +992,7 @@ class InscripcionOverlay(BaseOverlay):
             else:
                 error_msg = resultado.get('error', 'Error desconocido')
                 self.mostrar_mensaje("Error", f"No se pudo crear la inscripción: {error_msg}", "error")
-
+                
         except Exception as e:
             logger.error(f"Error creando inscripción: {e}")
             self.mostrar_mensaje("Error", f"Error al crear inscripción: {str(e)}", "error")
@@ -940,40 +1005,58 @@ class InscripcionOverlay(BaseOverlay):
             logger.debug(f"🔄 Actualizando interfaz - Est: {self.estudiante_id}, Prog: {self.programa_id}")
             
             # Actualizar etiquetas de información
-            if self.estudiante_id and self.estudiante_id_label:
+            if self.estudiante_id:
                 self.actualizar_info_estudiante()
-            
-            if self.programa_id and self.programa_id_label:
+            elif self.estudiante_id_label:
+                self.estudiante_id_label.setText("NO ESPECIFICADO")
+                
+            if self.programa_id:
                 self.actualizar_info_programa()
+            elif self.programa_id_label:
+                self.programa_id_label.setText("NO ESPECIFICADO")
+                
+            # Determinar qué secciones mostrar según el contexto
+            # CASO 1: Si NO hay estudiante_id -> Mostrar selector de estudiante
+            mostrar_seleccion_estudiante = (self.estudiante_id is None)
             
-            # Determinar qué secciones mostrar
-            mostrar_seleccion_estudiante = not bool(self.estudiante_id)
-            mostrar_seleccion_programa = bool(self.estudiante_id and not self.programa_id)
-            
-            # Verificar si existe inscripción para estos IDs
+            # CASO 2: Si HAY estudiante_id pero NO hay programa_id -> Mostrar selector de programa
+            # SOLO si estamos en modo de búsqueda desde programa
+            if self.estudiante_id and not self.programa_id:
+                # Verificar si el programa_id fue pasado originalmente
+                mostrar_seleccion_programa = True
+            else:
+                mostrar_seleccion_programa = False
+                
+            # CASO 3: Si AMBOS IDs existen -> Verificar si hay inscripción
             existe_inscripcion = False
+            mostrar_nueva_inscripcion = False
+            
             if self.estudiante_id and self.programa_id:
                 existe_inscripcion = self.verificar_existe_inscripcion()
+                # Mostrar nueva inscripción solo si NO existe y estamos en modo creación
                 mostrar_nueva_inscripcion = not existe_inscripcion
-            else:
-                mostrar_nueva_inscripcion = False
-            
+                
             # Mostrar/ocultar secciones
             if self.seleccion_estudiante_frame:
                 self.seleccion_estudiante_frame.setVisible(mostrar_seleccion_estudiante)
-            
+                # Si estamos mostrando selección de estudiante, limpiar búsqueda
+                if mostrar_seleccion_estudiante and self.busqueda_estudiante_input:
+                    self.busqueda_estudiante_input.setFocus()
+                    
             if self.seleccion_programa_frame:
                 self.seleccion_programa_frame.setVisible(mostrar_seleccion_programa)
                 if mostrar_seleccion_programa:
-                    QTimer.singleShot(150, self.cargar_programas_disponibles)
-            
+                    # Cargar programas después de un pequeño delay
+                    QTimer.singleShot(100, self.cargar_programas_disponibles)
+                    
             if self.nueva_inscripcion_frame:
                 self.nueva_inscripcion_frame.setVisible(mostrar_nueva_inscripcion)
+                
+            # IMPORTANTE: SIEMPRE mostrar el listado de inscripciones cuando hay algún ID
+            # El método cargar_inscripciones() maneja los diferentes casos
             
-            # IMPORTANTE: SIEMPRE mostrar el listado de inscripciones cuando hay estudiante_id
-            # incluso si también mostramos el selector de programa
-            
-            logger.debug(f"✅ Interfaz actualizada - SelEst: {mostrar_seleccion_estudiante}, SelProg: {mostrar_seleccion_programa}, Nueva: {mostrar_nueva_inscripcion}")
+            logger.debug(f"✅ Interfaz actualizada - SelEst: {mostrar_seleccion_estudiante}, " 
+                        f"SelProg: {mostrar_seleccion_programa}, Nueva: {mostrar_nueva_inscripcion}")
             
         except Exception as e:
             logger.error(f"Error actualizando interfaz: {e}")
@@ -1022,20 +1105,51 @@ class InscripcionOverlay(BaseOverlay):
         """Actualizar información del programa en la etiqueta"""
         try:
             if not self.programa_id:
-                logger.error(f"Error No se tiene Programa {self.programa_id}")
+                if self.programa_id_label:
+                    self.programa_id_label.setText("NO ESPECIFICADO")
                 return
             
+            # Intentar obtener del modelo primero
             resultado = ProgramaModel.obtener_programa(self.programa_id)
+            
             if resultado.get('success') and resultado.get('data'):
                 programa = resultado['data']
                 codigo = programa.get('codigo', '')
                 nombre = programa.get('nombre', '')
-                self.programa_id_label.setText(f"{self.programa_id} - {codigo} - {nombre[:30]}") # type: ignore
+                costo = float(programa.get('costo_total', 0) or 0)
+                
+                texto = f"{self.programa_id} - {codigo} - {nombre} ({costo:.2f} Bs.)"
+                if self.programa_id_label:
+                    self.programa_id_label.setText(texto)
             else:
-                self.programa_id_label.setText(f"ID: {self.programa_id}") # type: ignore
+                # Si falla el modelo, intentar consulta directa
+                from config.database import Database
+                connection = Database.get_connection()
+                if connection:
+                    cursor = connection.cursor()
+                    query = "SELECT id, codigo, nombre, costo_total FROM programas WHERE id = %s"
+                    cursor.execute(query, (self.programa_id,))
+                    resultado = cursor.fetchone()
+                    
+                    if resultado:
+                        id_prog, codigo, nombre, costo = resultado
+                        texto = f"{id_prog} - {codigo} - {nombre} ({float(costo or 0):.2f} Bs.)"
+                        if self.programa_id_label:
+                            self.programa_id_label.setText(texto)
+                    else:
+                        if self.programa_id_label:
+                            self.programa_id_label.setText(f"ID: {self.programa_id} (NO ENCONTRADO)")
+                            
+                    cursor.close()
+                    Database.return_connection(connection)
+                else:
+                    if self.programa_id_label:
+                        self.programa_id_label.setText(f"ID: {self.programa_id}")
+                        
         except Exception as e:
             logger.error(f"Error actualizando info programa: {e}")
-            self.programa_id_label.setText(f"ID: {self.programa_id}") # type: ignore
+            if self.programa_id_label:
+                self.programa_id_label.setText(f"ID: {self.programa_id}")
     
     def cargar_inscripciones(self):
         """Cargar las inscripciones relacionadas según el contexto"""
@@ -1132,7 +1246,7 @@ class InscripcionOverlay(BaseOverlay):
                     inscripciones_validas.append(inscripcion)
                 else:
                     logger.warning(f"Inscripción sin ID válido: {inscripcion}")
-
+                    
             self.inscripciones = inscripciones_validas
             
             # Mostrar resultados
@@ -1643,9 +1757,264 @@ class InscripcionOverlay(BaseOverlay):
     
     def agregar_transaccion(self, inscripcion_id: int):
         """Abrir diálogo para agregar transacción"""
-        self.mostrar_mensaje("Información", 
-                            f"Funcionalidad para agregar transacción a inscripción ID: {inscripcion_id}", 
-                            "info")
+        try:
+            # Primero diagnosticar el esquema (solo para debug)
+            logger.debug("Diagnosticando esquema de transacciones...")
+            diagnostico = InscripcionModel.diagnosticar_esquema_transacciones()
+            logger.debug(f"Diagnóstico esquema: {diagnostico}")
+            
+            # Luego obtener el saldo pendiente
+            resultado_saldo = InscripcionModel.obtener_saldo_pendiente_inscripcion(inscripcion_id)
+            
+            if not resultado_saldo.get('exito'):
+                error_msg = resultado_saldo.get('error', 'No se pudo obtener información de la inscripción')
+                self.mostrar_mensaje("Error", error_msg, "error")
+                return
+            
+            # Obtener datos del resultado
+            saldo_pendiente = resultado_saldo.get('saldo_pendiente', 0.0)
+            monto_inscripcion = resultado_saldo.get('monto_total', 0.0)
+            total_pagado = resultado_saldo.get('total_pagado', 0.0)
+            estudiante_id = self.estudiante_id
+            programa_id = self.programa_id
+            
+            # Obtener información adicional de estudiante y programa
+            estudiante_info = resultado_saldo.get('estudiante', {})
+            programa_info = resultado_saldo.get('programa', {})
+            
+            # Obtener monto de mensualidad del programa
+            if programa_id:
+                resultado_mensualidad = InscripcionModel.obtener_monto_mensualidad_programa(programa_id)
+                costo_mensualidad = resultado_mensualidad.get('costo_mensualidad', 0.0)
+                costo_matricula = resultado_mensualidad.get('costo_matricula', 0.0)
+                costo_inscripcion = resultado_mensualidad.get('costo_inscripcion', 0.0)
+            else:
+                costo_mensualidad = 0.0
+                costo_matricula = 0.0
+                costo_inscripcion = 0.0
+            
+            # Determinar monto sugerido inteligentemente
+            monto_sugerido = self._determinar_monto_sugerido(
+                saldo_pendiente=saldo_pendiente,
+                costo_mensualidad=costo_mensualidad,
+                costo_matricula=costo_matricula,
+                costo_inscripcion=costo_inscripcion,
+                total_pagado=total_pagado
+            )
+            
+            # Crear descripción automática
+            nombre_estudiante = f"{estudiante_info.get('nombres', '')} " \
+                                f"{estudiante_info.get('apellido_paterno', '')} " \
+                                f"{estudiante_info.get('apellido_materno', '')}".strip()
+            
+            descripcion_programa = f"{programa_info.get('codigo', '')} - {programa_info.get('nombre', '')}"
+            
+            # Construir observaciones detalladas
+            observaciones = self._construir_observaciones_transaccion(
+                inscripcion_id=inscripcion_id,
+                nombre_estudiante=nombre_estudiante,
+                descripcion_programa=descripcion_programa,
+                monto_inscripcion=monto_inscripcion,
+                total_pagado=total_pagado,
+                saldo_pendiente=saldo_pendiente,
+                monto_sugerido=monto_sugerido
+            )
+            
+            # Crear y configurar el overlay de transacción
+            from view.overlays.transaccion_overlay import TransaccionOverlay
+            
+            # Obtener la ventana principal (parent)
+            parent_window = self.window()
+            
+            transaccion_overlay = TransaccionOverlay(parent_window)
+            
+            # Configurar las dimensiones
+            transaccion_overlay.setMinimumSize(900, 700)
+            transaccion_overlay.resize(1000, 800)
+            
+            # Conectar señales del transaccion overlay
+            def on_transaccion_creada(datos_transaccion):
+                """Manejador cuando se crea una transacción"""
+                self.mostrar_mensaje("✅ Éxito", "Transacción creada exitosamente", "success")
+                
+                # Refrescar la lista de inscripciones para mostrar la nueva transacción
+                QTimer.singleShot(500, self.cargar_inscripciones)
+                
+                # Emitir señal para actualizar otras partes del sistema si es necesario
+                self.inscripcion_actualizada.emit({'id': inscripcion_id})
+            
+            def on_transaccion_actualizada(datos_transaccion):
+                """Manejador cuando se actualiza una transacción"""
+                self.mostrar_mensaje("✅ Éxito", "Transacción actualizada", "success")
+                QTimer.singleShot(500, self.cargar_inscripciones)
+            
+            def on_transaccion_anulada(transaccion_id):
+                """Manejador cuando se anula una transacción"""
+                self.mostrar_mensaje("ℹ️ Información", f"Transacción {transaccion_id} anulada", "info")
+                QTimer.singleShot(500, self.cargar_inscripciones)
+            
+            def on_documento_subido(datos_documento):
+                """Manejador cuando se sube un documento"""
+                logger.debug(f"Documento subido: {datos_documento}")
+            
+            # Conectar las señales
+            transaccion_overlay.transaccion_creada.connect(on_transaccion_creada)
+            transaccion_overlay.transaccion_actualizada.connect(on_transaccion_actualizada)
+            transaccion_overlay.transaccion_anulada.connect(on_transaccion_anulada)
+            transaccion_overlay.documento_subido.connect(on_documento_subido)
+            
+            # Mostrar el overlay con los parámetros necesarios
+            transaccion_overlay.show_form(
+                solo_lectura=False,
+                modo="nuevo",
+                estudiante_id=estudiante_id,
+                programa_id=programa_id,
+                inscripcion_id=inscripcion_id
+            )
+            
+            # Configurar algunos valores por defecto en el overlay
+            def configurar_valores_por_defecto():
+                # Establecer monto sugerido
+                if hasattr(transaccion_overlay, 'monto_total_input'):
+                    transaccion_overlay.monto_total_input.setValue(float(monto_sugerido))
+                    transaccion_overlay._actualizar_total()  # Actualizar cálculo
+                
+                # Establecer observaciones sugeridas
+                if hasattr(transaccion_overlay, 'observaciones_input'):
+                    transaccion_overlay.observaciones_input.setPlainText(observaciones)
+                
+                # Configurar límites según saldo pendiente
+                if hasattr(transaccion_overlay, 'monto_total_input') and saldo_pendiente > 0:
+                    # Establecer máximo como saldo pendiente
+                    transaccion_overlay.monto_total_input.setMaximum(float(saldo_pendiente))
+                    # Sugerir que no exceda el saldo pendiente
+                    transaccion_overlay.monto_total_input.setToolTip(
+                        f"Saldo pendiente: {saldo_pendiente:.2f} Bs.\n"
+                        f"Monto sugerido: {monto_sugerido:.2f} Bs."
+                    )
+                
+                # Actualizar título
+                titulo = f"💰 Nueva Transacción - Inscripción {inscripcion_id}"
+                if saldo_pendiente > 0:
+                    titulo += f" (Saldo pendiente: {saldo_pendiente:.2f} Bs.)"
+                transaccion_overlay.set_titulo(titulo)
+                
+                # Sugerir forma de pago basada en el monto
+                self._sugerir_forma_pago(transaccion_overlay, monto_sugerido)
+            
+            # Usar un timer para configurar los valores después de que se muestre el overlay
+            QTimer.singleShot(100, configurar_valores_por_defecto)
+            
+            logger.debug(f"✅ Abriendo TransaccionOverlay para inscripción {inscripcion_id}")
+        
+        except Exception as e:
+            logger.error(f"Error abriendo TransaccionOverlay: {e}")
+            self.mostrar_mensaje("❌ Error", 
+                                f"No se pudo abrir el formulario de transacción: {str(e)}", 
+                                "error")
+    
+    def _determinar_monto_sugerido(self, saldo_pendiente: float, costo_mensualidad: float,
+                                    costo_matricula: float, costo_inscripcion: float,
+                                    total_pagado: float) -> float:
+        """
+        Determinar monto sugerido inteligentemente basado en contexto
+        
+        Args:
+            saldo_pendiente: Saldo pendiente de la inscripción
+            costo_mensualidad: Costo de mensualidad del programa
+            costo_matricula: Costo de matrícula
+            costo_inscripcion: Costo de inscripción
+            total_pagado: Total ya pagado
+            
+        Returns:
+            Monto sugerido para la transacción
+        """
+        # Si no hay nada pagado, sugerir inscripción o matrícula
+        if total_pagado == 0:
+            if costo_inscripcion > 0:
+                return float(costo_inscripcion)
+            elif costo_matricula > 0:
+                return float(costo_matricula)
+        
+        # Si ya se pagó inscripción/matrícula, sugerir mensualidad
+        if costo_mensualidad > 0:
+            # Si hay saldo pendiente menor que una mensualidad, sugerir el saldo completo
+            if saldo_pendiente > 0 and saldo_pendiente < costo_mensualidad:
+                return saldo_pendiente
+            # Sino, sugerir la mensualidad
+            return float(costo_mensualidad)
+        
+        # Si no hay mensualidad, sugerir el saldo pendiente completo o un monto razonable
+        if saldo_pendiente > 0:
+            # Si el saldo es muy grande, sugerir un pago parcial
+            if saldo_pendiente > 1000:
+                return 500.0  # Pago parcial sugerido
+            return saldo_pendiente
+        
+        # Por defecto, sugerir 100 Bs.
+        return 100.0
+    
+    def _construir_observaciones_transaccion(self, inscripcion_id: int, nombre_estudiante: str,
+                                            descripcion_programa: str, monto_inscripcion: float,
+                                            total_pagado: float, saldo_pendiente: float,
+                                            monto_sugerido: float) -> str:
+        """
+        Construir observaciones detalladas para la transacción
+        
+        Args:
+            Parámetros con información de la inscripción
+            
+        Returns:
+            String con observaciones formateadas
+        """
+        from datetime import datetime
+        
+        observaciones = f"=== PAGO PARA INSCRIPCIÓN ===\n"
+        observaciones += f"Inscripción ID: {inscripcion_id}\n"
+        observaciones += f"Fecha sugerida: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+        observaciones += f"\n--- DETALLES DEL ESTUDIANTE ---\n"
+        observaciones += f"Estudiante: {nombre_estudiante}\n"
+        observaciones += f"Programa: {descripcion_programa}\n"
+        observaciones += f"\n--- RESUMEN FINANCIERO ---\n"
+        observaciones += f"Total inscripción: {monto_inscripcion:.2f} Bs.\n"
+        observaciones += f"Total pagado: {total_pagado:.2f} Bs.\n"
+        observaciones += f"Saldo pendiente: {saldo_pendiente:.2f} Bs.\n"
+        observaciones += f"Monto sugerido: {monto_sugerido:.2f} Bs.\n"
+        observaciones += f"\n--- OBSERVACIONES ---\n"
+        
+        if saldo_pendiente <= 0:
+            observaciones += "⚠️  La inscripción ya está pagada completamente.\n"
+            observaciones += "Este pago es para conceptos adicionales."
+        elif monto_sugerido >= saldo_pendiente:
+            observaciones += "✅  Este pago cubrirá el saldo pendiente completo."
+        else:
+            observaciones += f"📊  Este pago cubrirá {monto_sugerido/saldo_pendiente*100:.1f}% del saldo pendiente."
+            observaciones += f"\nSaldo restante después del pago: {saldo_pendiente - monto_sugerido:.2f} Bs."
+            
+        return observaciones
+    
+    def _sugerir_forma_pago(self, transaccion_overlay, monto_sugerido: float):
+        """
+        Sugerir forma de pago basada en el monto
+        
+        Args:
+            transaccion_overlay: Instancia del overlay de transacción
+            monto_sugerido: Monto sugerido para la transacción
+        """
+        if not hasattr(transaccion_overlay, 'forma_pago_combo'):
+            return
+        
+        # Para montos pequeños, sugerir efectivo
+        if monto_sugerido <= 500:
+            # Buscar "EFECTIVO" en el combo
+            index = transaccion_overlay.forma_pago_combo.findText("EFECTIVO")
+            if index >= 0:
+                transaccion_overlay.forma_pago_combo.setCurrentIndex(index)
+        # Para montos grandes, sugerir transferencia
+        elif monto_sugerido > 2000:
+            index = transaccion_overlay.forma_pago_combo.findText("TRANSFERENCIA")
+            if index >= 0:
+                transaccion_overlay.forma_pago_combo.setCurrentIndex(index)
     
     # ===== MÉTODOS OVERRIDE DE BASE OVERLAY =====
     
@@ -1654,30 +2023,63 @@ class InscripcionOverlay(BaseOverlay):
         """Mostrar overlay con configuración específica"""
         logger.debug(f"📋 show_form llamado - Est: {estudiante_id}, Prog: {programa_id}, Insc: {inscripcion_id}")
         
+        # Limpiar estado anterior
+        self.clear_form()
+        
         self.solo_lectura = solo_lectura
         self.modo = modo
         
-        # Configurar IDs según parámetros
-        if estudiante_id:
-            self.estudiante_id = estudiante_id
-        
-        if programa_id:
-            self.programa_id = programa_id
-        
+        # Configurar IDs según parámetros (convertir a int si es necesario)
+        if estudiante_id is not None:
+            try:
+                self.estudiante_id = int(estudiante_id) if isinstance(estudiante_id, (int, str)) and str(estudiante_id).isdigit() else None
+            except:
+                self.estudiante_id = None
+                
+        if programa_id is not None:
+            try:
+                self.programa_id = int(programa_id) if isinstance(programa_id, (int, str)) and str(programa_id).isdigit() else None
+            except:
+                self.programa_id = None
+                
+        # Si hay inscripción_id, cargar datos de la inscripción
         if inscripcion_id:
-            self.inscripcion_id = inscripcion_id
-        
+            try:
+                inscripcion_id_int = int(inscripcion_id) if isinstance(inscripcion_id, (int, str)) and str(inscripcion_id).isdigit() else None
+                if inscripcion_id_int:
+                    # Obtener datos de la inscripción
+                    from config.database import Database
+                    connection = Database.get_connection()
+                    if connection:
+                        cursor = connection.cursor()
+                        query = """
+                        SELECT estudiante_id, programa_id FROM inscripciones 
+                        WHERE id = %s
+                        """
+                        cursor.execute(query, (inscripcion_id_int,))
+                        resultado = cursor.fetchone()
+                        
+                        if resultado:
+                            self.estudiante_id = resultado[0]
+                            self.programa_id = resultado[1]
+                            self.inscripcion_id = inscripcion_id_int
+                            
+                        cursor.close()
+                        Database.return_connection(connection)
+            except Exception as e:
+                logger.error(f"Error cargando inscripción {inscripcion_id}: {e}")
+                
         logger.debug(f"✅ Configurado - Est: {self.estudiante_id}, Prog: {self.programa_id}, Insc: {self.inscripcion_id}")
         
-        # Configurar título
+        # Configurar título según contexto
         titulo = "🎓 GESTIÓN DE INSCRIPCIONES"
         if self.estudiante_id and self.programa_id:
-            titulo = f"INSCRIPCIÓN - EST: {self.estudiante_id}, PROG: {self.programa_id}"
+            titulo = f"🎓 INSCRIPCIÓN - EST: {self.estudiante_id}, PROG: {self.programa_id}"
         elif self.estudiante_id:
-            titulo = f"INSCRIPCIONES DEL ESTUDIANTE {self.estudiante_id}"
+            titulo = f"👤 INSCRIPCIONES DEL ESTUDIANTE {self.estudiante_id}"
         elif self.programa_id:
-            titulo = f"INSCRIPCIONES DEL PROGRAMA {self.programa_id}"
-        
+            titulo = f"📚 INSCRIPCIONES DEL PROGRAMA {self.programa_id}"
+            
         self.set_titulo(titulo)
         
         # Ocultar botones base que no necesitamos
@@ -1687,8 +2089,8 @@ class InscripcionOverlay(BaseOverlay):
         # Actualizar interfaz según contexto
         self.actualizar_interfaz_segun_contexto()
         
-        # Cargar inscripciones
-        QTimer.singleShot(100, self.cargar_inscripciones)
+        # Cargar inscripciones después de un pequeño delay
+        QTimer.singleShot(150, self.cargar_inscripciones)
         
         # Llamar al método base
         super().show_form(solo_lectura)
@@ -1705,39 +2107,39 @@ class InscripcionOverlay(BaseOverlay):
         self.inscripciones = []
         self.estudiantes_encontrados = []
         self.programas_disponibles = []
-
+        
         if self.estudiante_id_label:
             self.estudiante_id_label.setText("NO ESPECIFICADO")
-
+            
         if self.programa_id_label:
             self.programa_id_label.setText("NO ESPECIFICADO")
-
+            
         if self.busqueda_estudiante_input:
             self.busqueda_estudiante_input.clear()
-
+            
         if self.programa_combo:
             self.programa_combo.clear()
             self.programa_combo.addItem("-- SELECCIONE UN PROGRAMA --", None)
-
+            
         if self.btn_seleccionar_programa:
             self.btn_seleccionar_programa.setEnabled(False)
-
+            
         if self.seleccion_estudiante_frame:
             self.seleccion_estudiante_frame.setVisible(False)
-
+            
         if self.seleccion_programa_frame:
             self.seleccion_programa_frame.setVisible(False)
-
+            
         if self.nueva_inscripcion_frame:
             self.nueva_inscripcion_frame.setVisible(False)
-
+            
         if self.inscripciones_layout:
             while self.inscripciones_layout.count():
                 child = self.inscripciones_layout.takeAt(0)
                 widget = child.widget()
                 if widget:
                     widget.deleteLater()
-
+                    
         if self.estudiantes_list_layout:
             while self.estudiantes_list_layout.count():
                 child = self.estudiantes_list_layout.takeAt(0)
@@ -1774,3 +2176,4 @@ class InscripcionOverlay(BaseOverlay):
                     widget = item.widget()
                     if widget and widget.objectName() == "tarjetaInscripcion":
                         widget.setMaximumWidth(int(self.width() * 0.9))
+    

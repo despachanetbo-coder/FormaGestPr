@@ -525,6 +525,76 @@ class InscripcionModel:
                 Database.return_connection(connection)
     
     @staticmethod
+    def obtener_inscripciones_por_estudiante(estudiante_id: int) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las inscripciones de un estudiante
+        
+        Args:
+            estudiante_id: ID del estudiante
+            
+        Returns:
+            Lista de inscripciones del estudiante
+        """
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                raise Exception("No se pudo obtener conexión a la base de datos")
+            
+            cursor = connection.cursor()
+            
+            query = """
+            SELECT 
+                i.id,
+                i.fecha_inscripcion,
+                i.estado,
+                i.descuento_aplicado,
+                p.codigo,
+                p.nombre as programa_nombre,
+                p.costo_total,
+                COALESCE(SUM(t.monto_final), 0) as pagado,
+                (p.costo_total - COALESCE(SUM(t.monto_final), 0)) - COALESCE(i.descuento_aplicado, 0) as saldo
+            FROM inscripciones i
+            JOIN programas p ON i.programa_id = p.id
+            LEFT JOIN transacciones t ON i.estudiante_id = t.estudiante_id 
+                AND i.programa_id = t.programa_id
+                AND t.estado = 'CONFIRMADO'
+            WHERE i.estudiante_id = %s
+            GROUP BY i.id, p.id
+            ORDER BY i.fecha_inscripcion DESC
+            """
+            
+            cursor.execute(query, (estudiante_id,))
+            results = cursor.fetchall()
+            
+            columns = [
+                'id', 'fecha_inscripcion', 'estado', 'descuento_aplicado',
+                'programa_codigo', 'programa_nombre', 'costo_total',
+                'pagado', 'saldo'
+            ]
+            
+            inscripciones = []
+            for row in results:
+                inscripcion = dict(zip(columns, row))
+                inscripciones.append(inscripcion)
+            
+            return inscripciones
+            
+        except Exception as e:
+            logger.error(f"Error al obtener inscripciones por estudiante: {e}")
+            raise
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+    
+    @staticmethod
     def obtener_programas_inscritos_estudiante(estudiante_id: int) -> List[Dict]:
         """Obtener todos los programas en los que un estudiante está inscrito"""
         try:
@@ -634,6 +704,255 @@ class InscripcionModel:
             return []
     
     @staticmethod
+    def obtener_saldo_pendiente_inscripcion(inscripcion_id: int) -> Dict[str, Any]:
+        """
+        Obtener el saldo pendiente de una inscripción
+        
+        Args:
+            inscripcion_id: ID de la inscripción
+            
+        Returns:
+            Dict con saldo_pendiente, monto_total y total_pagado
+        """
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return {
+                    'exito': False,
+                    'error': 'No hay conexión a la base de datos',
+                    'saldo_pendiente': 0.0,
+                    'monto_total': 0.0,
+                    'total_pagado': 0.0
+                }
+            
+            cursor = connection.cursor()
+            
+            # PRIMERO: Verificar el esquema de la tabla transacciones
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'transacciones' 
+                AND column_name IN ('inscripcion_id', 'estudiante_id', 'programa_id')
+            """)
+            columnas_transacciones = [row[0] for row in cursor.fetchall()]
+            
+            logger.debug(f"Columnas disponibles en transacciones: {columnas_transacciones}")
+            
+            # Obtener información básica de la inscripción
+            query_inscripcion = """
+            SELECT 
+                i.estudiante_id,
+                i.programa_id,
+                p.costo_total,
+                i.descuento_aplicado,
+                p.codigo,
+                p.nombre,
+                e.nombres,
+                e.apellido_paterno,
+                e.apellido_materno
+            FROM inscripciones i
+            JOIN programas p ON i.programa_id = p.id
+            JOIN estudiantes e ON i.estudiante_id = e.id
+            WHERE i.id = %s
+            """
+            
+            cursor.execute(query_inscripcion, (inscripcion_id,))
+            resultado_insc = cursor.fetchone()
+            
+            if not resultado_insc:
+                cursor.close()
+                Database.return_connection(connection)
+                return {
+                    'exito': False,
+                    'error': f'No se encontró la inscripción ID: {inscripcion_id}',
+                    'saldo_pendiente': 0.0,
+                    'monto_total': 0.0,
+                    'total_pagado': 0.0
+                }
+            
+            # Desempaquetar resultados
+            (estudiante_id, programa_id, costo_total, descuento, codigo_programa, 
+            nombre_programa, nombres, apellido_paterno, apellido_materno) = resultado_insc
+            
+            # Calcular monto de inscripción con descuento
+            costo_total_float = float(costo_total or 0)
+            descuento_float = float(descuento or 0)
+            monto_inscripcion = costo_total_float * (1 - (descuento_float / 100))
+            
+            # DETERMINAR CÓMO RELACIONAR TRANSACCIONES CON LA INSCRIPCIÓN
+            # Opción 1: Si existe columna inscripcion_id en transacciones
+            if 'inscripcion_id' in columnas_transacciones:
+                query_transacciones = """
+                SELECT 
+                    COALESCE(SUM(t.monto_final), 0) as total_pagado,
+                    COUNT(t.id) as cantidad_transacciones
+                FROM transacciones t
+                WHERE t.inscripcion_id = %s
+                AND t.estado NOT IN ('ANULADO', 'RECHAZADO')
+                """
+                params = (inscripcion_id,)
+                
+            # Opción 2: Relacionar por estudiante_id y programa_id
+            elif 'estudiante_id' in columnas_transacciones and 'programa_id' in columnas_transacciones:
+                query_transacciones = """
+                SELECT 
+                    COALESCE(SUM(t.monto_final), 0) as total_pagado,
+                    COUNT(t.id) as cantidad_transacciones
+                FROM transacciones t
+                WHERE t.estudiante_id = %s
+                AND t.programa_id = %s
+                AND t.estado NOT IN ('ANULADO', 'RECHAZADO')
+                """
+                params = (estudiante_id, programa_id)
+                
+            # Opción 3: Solo por estudiante_id
+            elif 'estudiante_id' in columnas_transacciones:
+                query_transacciones = """
+                SELECT 
+                    COALESCE(SUM(t.monto_final), 0) as total_pagado,
+                    COUNT(t.id) as cantidad_transacciones
+                FROM transacciones t
+                WHERE t.estudiante_id = %s
+                AND t.estado NOT IN ('ANULADO', 'RECHAZADO')
+                """
+                params = (estudiante_id,)
+                
+            else:
+                # No hay forma de relacionar transacciones
+                logger.warning("No se encontraron columnas para relacionar transacciones con inscripciones")
+                total_pagado = 0.0
+                cantidad_transacciones = 0
+                cursor.close()
+                Database.return_connection(connection)
+                
+                saldo_pendiente = max(0, monto_inscripcion)
+                
+                return {
+                    'exito': True,
+                    'saldo_pendiente': saldo_pendiente,
+                    'monto_total': monto_inscripcion,
+                    'total_pagado': total_pagado,
+                    'cantidad_transacciones': cantidad_transacciones,
+                    'costo_total': costo_total_float,
+                    'descuento_aplicado': descuento_float,
+                    'estudiante_id': estudiante_id,
+                    'programa_id': programa_id,
+                    'programa': {
+                        'codigo': codigo_programa,
+                        'nombre': nombre_programa
+                    },
+                    'estudiante': {
+                        'nombres': nombres,
+                        'apellido_paterno': apellido_paterno,
+                        'apellido_materno': apellido_materno
+                    },
+                    'advertencia': 'No se pudieron relacionar transacciones con esta inscripción'
+                }
+            
+            # Ejecutar consulta de transacciones
+            cursor.execute(query_transacciones, params)
+            resultado_pagos = cursor.fetchone()
+            
+            total_pagado = float(resultado_pagos[0] or 0) if resultado_pagos else 0.0
+            cantidad_transacciones = int(resultado_pagos[1] or 0) if resultado_pagos else 0
+            
+            cursor.close()
+            Database.return_connection(connection)
+            
+            saldo_pendiente = max(0, monto_inscripcion - total_pagado)
+            
+            return {
+                'exito': True,
+                'saldo_pendiente': saldo_pendiente,
+                'monto_total': monto_inscripcion,
+                'total_pagado': total_pagado,
+                'cantidad_transacciones': cantidad_transacciones,
+                'costo_total': costo_total_float,
+                'descuento_aplicado': descuento_float,
+                'estudiante_id': estudiante_id,
+                'programa_id': programa_id,
+                'programa': {
+                    'codigo': codigo_programa,
+                    'nombre': nombre_programa
+                },
+                'estudiante': {
+                    'nombres': nombres,
+                    'apellido_paterno': apellido_paterno,
+                    'apellido_materno': apellido_materno
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo saldo pendiente de inscripción {inscripcion_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                'exito': False,
+                'error': str(e),
+                'saldo_pendiente': 0.0,
+                'monto_total': 0.0,
+                'total_pagado': 0.0
+            }
+    
+    @staticmethod
+    def obtener_monto_mensualidad_programa(programa_id: int) -> Dict[str, Any]:
+        """
+        Obtener el monto de mensualidad de un programa
+        
+        Args:
+            programa_id: ID del programa
+            
+        Returns:
+            Dict con costo_mensualidad y otros datos del programa
+        """
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return {'exito': False, 'error': 'No hay conexión', 'costo_mensualidad': 0.0}
+            
+            cursor = connection.cursor()
+            
+            query = """
+            SELECT 
+                costo_mensualidad,
+                costo_matricula,
+                costo_inscripcion,
+                costo_total,
+                codigo,
+                nombre
+            FROM programas 
+            WHERE id = %s
+            """
+            
+            cursor.execute(query, (programa_id,))
+            resultado = cursor.fetchone()
+            
+            cursor.close()
+            Database.return_connection(connection)
+            
+            if not resultado:
+                return {'exito': False, 'error': 'Programa no encontrado', 'costo_mensualidad': 0.0}
+            
+            (costo_mensualidad, costo_matricula, costo_inscripcion, 
+            costo_total, codigo, nombre) = resultado
+            
+            return {
+                'exito': True,
+                'costo_mensualidad': float(costo_mensualidad or 0),
+                'costo_matricula': float(costo_matricula or 0),
+                'costo_inscripcion': float(costo_inscripcion or 0),
+                'costo_total': float(costo_total or 0),
+                'codigo': codigo,
+                'nombre': nombre
+            }
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo monto mensualidad programa {programa_id}: {e}")
+            return {'exito': False, 'error': str(e), 'costo_mensualidad': 0.0}
+    
+    @staticmethod
     def obtener_detalle_inscripcion(inscripcion_id: int) -> Dict[str, Any]:
         """
         Obtiene detalle completo de una inscripción
@@ -677,6 +996,75 @@ class InscripcionModel:
             
             if connection:
                 Database.return_connection(connection)
+    
+    @staticmethod
+    def diagnosticar_esquema_transacciones():
+        """Diagnosticar el esquema actual de la tabla transacciones"""
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return "No hay conexión"
+            
+            cursor = connection.cursor()
+            
+            # 1. Verificar columnas de la tabla transacciones
+            cursor.execute("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = 'transacciones'
+                ORDER BY ordinal_position
+            """)
+            
+            columnas = cursor.fetchall()
+            
+            # 2. Verificar si existe columna inscripcion_id
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'transacciones' 
+                    AND column_name = 'inscripcion_id'
+                )
+            """)
+            tiene_inscripcion_id = cursor.fetchone()[0]
+            
+            # 3. Verificar relaciones con inscripciones
+            cursor.execute("""
+                SELECT 
+                    tc.constraint_name,
+                    kcu.column_name,
+                    ccu.table_name AS foreign_table_name,
+                    ccu.column_name AS foreign_column_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                JOIN information_schema.constraint_column_usage AS ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                WHERE tc.table_name = 'transacciones'
+                AND tc.constraint_type = 'FOREIGN KEY'
+            """)
+            
+            relaciones = cursor.fetchall()
+            
+            cursor.close()
+            Database.return_connection(connection)
+            
+            resultado = {
+                'columnas': [{'nombre': col[0], 'tipo': col[1], 'nulo': col[2]} for col in columnas],
+                'tiene_inscripcion_id': tiene_inscripcion_id,
+                'relaciones': [{
+                    'constraint': rel[0],
+                    'columna': rel[1],
+                    'tabla_foreign': rel[2],
+                    'columna_foreign': rel[3]
+                } for rel in relaciones]
+            }
+            
+            return resultado
+            
+        except Exception as e:
+            logger.error(f"Error diagnosticando esquema: {e}")
+            return f"Error: {str(e)}"
     
     @staticmethod
     def actualizar_inscripcion(
@@ -789,72 +1177,3 @@ class InscripcionModel:
             if connection:
                 Database.return_connection(connection)
     
-    @staticmethod
-    def obtener_inscripciones_por_estudiante(estudiante_id: int) -> List[Dict[str, Any]]:
-        """
-        Obtiene todas las inscripciones de un estudiante
-        
-        Args:
-            estudiante_id: ID del estudiante
-            
-        Returns:
-            Lista de inscripciones del estudiante
-        """
-        connection = None
-        cursor = None
-        try:
-            connection = Database.get_connection()
-            if not connection:
-                raise Exception("No se pudo obtener conexión a la base de datos")
-            
-            cursor = connection.cursor()
-            
-            query = """
-            SELECT 
-                i.id,
-                i.fecha_inscripcion,
-                i.estado,
-                i.descuento_aplicado,
-                p.codigo,
-                p.nombre as programa_nombre,
-                p.costo_total,
-                COALESCE(SUM(t.monto_final), 0) as pagado,
-                (p.costo_total - COALESCE(SUM(t.monto_final), 0)) - COALESCE(i.descuento_aplicado, 0) as saldo
-            FROM inscripciones i
-            JOIN programas p ON i.programa_id = p.id
-            LEFT JOIN transacciones t ON i.estudiante_id = t.estudiante_id 
-                AND i.programa_id = t.programa_id
-                AND t.estado = 'CONFIRMADO'
-            WHERE i.estudiante_id = %s
-            GROUP BY i.id, p.id
-            ORDER BY i.fecha_inscripcion DESC
-            """
-            
-            cursor.execute(query, (estudiante_id,))
-            results = cursor.fetchall()
-            
-            columns = [
-                'id', 'fecha_inscripcion', 'estado', 'descuento_aplicado',
-                'programa_codigo', 'programa_nombre', 'costo_total',
-                'pagado', 'saldo'
-            ]
-            
-            inscripciones = []
-            for row in results:
-                inscripcion = dict(zip(columns, row))
-                inscripciones.append(inscripcion)
-            
-            return inscripciones
-            
-        except Exception as e:
-            logger.error(f"Error al obtener inscripciones por estudiante: {e}")
-            raise
-        finally:
-            try:
-                if cursor:
-                    cursor.close()
-            except:
-                pass
-            
-            if connection:
-                Database.return_connection(connection)

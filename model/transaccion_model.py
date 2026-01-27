@@ -573,144 +573,393 @@ class TransaccionModel(BaseModel):
             
             if connection is not None:
                 Database.return_connection(connection)
-
+    
     # En el archivo model/transaccion_model.py, agregar:
-
-    @classmethod
-    def crear_transaccion_completa(cls, inscripcion_id: int, estudiante_id: int, 
-                                    programa_id: int, monto_final: float, forma_pago: str,
-                                    origen: Optional[str], estado: str, fecha_pago: str,
-                                    detalles: List[Dict], documentos: List[Dict]) -> Dict:
+    
+    @staticmethod
+    def crear_transaccion_completa(
+        estudiante_id: Optional[int] = None,
+        programa_id: Optional[int] = None,
+        fecha_pago: Optional[str] = None,
+        monto_total: float = 0,
+        descuento_total: float = 0,
+        forma_pago: str = 'EFECTIVO',
+        estado: str = 'REGISTRADO',
+        numero_comprobante: Optional[str] = None,
+        banco_origen: Optional[str] = None,
+        cuenta_origen: Optional[str] = None,
+        observaciones: Optional[str] = None,
+        registrado_por: Optional[int] = None,
+        detalles: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
         """
-        Crear una transacción completa con todos sus detalles y documentos
-
+        Crear una transacción completa de manera coherente con la base de datos
+        
         Args:
-            inscripcion_id: ID de la inscripción
-            estudiante_id: ID del estudiante
-            programa_id: ID del programa
-            monto_final: Monto total de la transacción
+            estudiante_id: ID del estudiante (opcional)
+            programa_id: ID del programa (opcional)
+            fecha_pago: Fecha del pago (YYYY-MM-DD)
+            monto_total: Monto total
+            descuento_total: Descuento aplicado
             forma_pago: Forma de pago
-            origen: Origen/referencia del pago
             estado: Estado de la transacción
-            fecha_pago: Fecha del pago
+            numero_comprobante: Número de comprobante
+            banco_origen: Banco de origen (para transferencias)
+            cuenta_origen: Cuenta de origen (para transferencias)
+            observaciones: Observaciones
+            registrado_por: ID del usuario que registra
             detalles: Lista de detalles de la transacción
-            documentos: Lista de documentos adjuntos
-
+            
         Returns:
             Diccionario con resultado de la operación
         """
+        connection = None
+        cursor = None
+        
         try:
-            from config.database import Database
             connection = Database.get_connection()
             if not connection:
                 return {'exito': False, 'mensaje': 'Error de conexión a la base de datos'}
-
+            
             cursor = connection.cursor()
-
-            # Generar número de transacción
-            numero_transaccion = cls.generar_numero_transaccion()
-
-            # 1. Insertar transacción principal
+            
+            # Calcular monto final
+            monto_final = monto_total - descuento_total
+            
+            # 1. Insertar transacción principal (el número se genera automáticamente)
             query_transaccion = """
             INSERT INTO transacciones (
-                numero_transaccion, estudiante_id, programa_id, inscripcion_id,
-                monto_final, forma_pago, origen, estado, fecha_pago, 
-                fecha_registro, usuario_registro
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
-            RETURNING id
+                estudiante_id, programa_id, fecha_pago,
+                monto_total, descuento_total, monto_final,
+                forma_pago, estado, numero_comprobante,
+                banco_origen, cuenta_origen, observaciones,
+                registrado_por
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, numero_transaccion
             """
-
-            # Obtener usuario actual (ajustar según tu implementación)
-            usuario = "Administrador"  # Default user if no session available
-
+            
             cursor.execute(query_transaccion, (
-                numero_transaccion, estudiante_id, programa_id, inscripcion_id,
-                monto_final, forma_pago, origen, estado, fecha_pago, usuario
+                estudiante_id if estudiante_id else None,
+                programa_id if programa_id else None,
+                fecha_pago,
+                monto_total,
+                descuento_total,
+                monto_final,
+                forma_pago,
+                estado,
+                numero_comprobante if numero_comprobante else None,
+                banco_origen if banco_origen else None,
+                cuenta_origen if cuenta_origen else None,
+                observaciones if observaciones else None,
+                registrado_por if registrado_por else None
             ))
-
-            transaccion_id = cursor.fetchone()[0]
-
-            # 2. Insertar detalles de la transacción
+            
+            transaccion_id, numero_transaccion = cursor.fetchone()
+            
+            # 2. Insertar detalles si existen
             if detalles:
-                query_detalle = """
-                INSERT INTO transaccion_detalles (
-                    transaccion_id, concepto, descripcion, 
-                    cantidad, precio_unitario, subtotal
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                """
-
                 for detalle in detalles:
+                    query_detalle = """
+                    INSERT INTO detalles_transaccion (
+                        transaccion_id, concepto_pago_id, descripcion,
+                        cantidad, precio_unitario, subtotal, orden
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    
                     cursor.execute(query_detalle, (
                         transaccion_id,
-                        detalle.get('concepto', ''),
+                        detalle.get('concepto_pago_id', 1),
                         detalle.get('descripcion', ''),
                         detalle.get('cantidad', 1),
                         detalle.get('precio_unitario', 0),
-                        detalle.get('subtotal', 0)
+                        detalle.get('subtotal', 0),
+                        detalle.get('orden', 0)
                     ))
-
-            # 3. Manejar documentos (si los hay)
-            # Nota: Esto depende de cómo manejes archivos en tu sistema
-            # Por ahora, solo registrar referencia en base de datos
-            if documentos:
-                query_documento = """
-                INSERT INTO transaccion_documentos (
-                    transaccion_id, nombre_archivo, ruta_archivo, 
-                    tipo_archivo, fecha_subida
-                ) VALUES (%s, %s, %s, %s, NOW())
-                """
-
-                for doc in documentos:
-                    cursor.execute(query_documento, (
-                        transaccion_id,
-                        doc.get('nombre', ''),
-                        doc.get('ruta', ''),
-                        doc.get('tipo', '')
-                    ))
-
-            # 4. Actualizar estado de la inscripción si el pago cubre todo
-            query_actualizar_inscripcion = """
-            UPDATE inscripciones 
-            SET estado = 'INSCRITO'
-            WHERE id = %s 
-            AND estado = 'PREINSCRITO'
-            """
-            cursor.execute(query_actualizar_inscripcion, (inscripcion_id,))
-
+                    
             connection.commit()
-            cursor.close()
-            Database.return_connection(connection)
-
+            
+            logger.info(f"✅ Transacción creada: ID={transaccion_id}, Número={numero_transaccion}")
+            
             return {
                 'exito': True,
                 'transaccion_id': transaccion_id,
                 'numero_transaccion': numero_transaccion,
                 'mensaje': 'Transacción registrada exitosamente'
             }
-
+            
         except Exception as e:
-            logger.error(f"Error creando transacción completa: {e}")
+            logger.error(f"❌ Error creando transacción completa: {e}")
             if connection:
                 connection.rollback()
-                cursor.close()
-                Database.return_connection(connection)
-
             return {
                 'exito': False,
                 'mensaje': f'Error al registrar transacción: {str(e)}'
             }
-
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+            
     @classmethod
     def generar_numero_transaccion(cls) -> str:
         """Generar número de transacción único"""
         try:
             import random
-
+            
             fecha = datetime.now().strftime('%Y%m%d')
             secuencia = str(random.randint(1000, 9999))
-
+            
             return f"TRX-{fecha}-{secuencia}"
-
+        
         except Exception as e:
             logger.error(f"Error generando número de transacción: {e}")
             return f"TRX-{int(datetime.now().timestamp())}"
+    
+    @staticmethod
+    def obtener_transacciones_filtradas(filtros: Optional[Dict] = None) -> List[Dict]:
+        """Obtener transacciones con filtros"""
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                logger.error("No se pudo obtener conexión a la base de datos")
+                return []
+            
+            cursor = connection.cursor()
+            
+            where_clauses = []
+            params = []
+            
+            if filtros:
+                # Filtrar por fecha
+                if 'fecha_desde' in filtros:
+                    where_clauses.append("t.fecha_pago >= %s")
+                    params.append(filtros['fecha_desde'])
+                    
+                if 'fecha_hasta' in filtros:
+                    where_clauses.append("t.fecha_pago <= %s")
+                    params.append(filtros['fecha_hasta'])
+                    
+                # Filtrar por estado
+                if 'estado' in filtros:
+                    where_clauses.append("t.estado = %s")
+                    params.append(filtros['estado'])
+                    
+                # Filtrar por forma de pago
+                if 'forma_pago' in filtros:
+                    where_clauses.append("t.forma_pago = %s")
+                    params.append(filtros['forma_pago'])
+                    
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+            
+            query = f"""
+                SELECT t.*, 
+                        e.nombres || ' ' || e.apellido_paterno as estudiante_nombre,
+                        p.nombre as programa_nombre
+                FROM transacciones t
+                LEFT JOIN estudiantes e ON t.estudiante_id = e.id
+                LEFT JOIN programas p ON t.programa_id = p.id
+                WHERE {where_sql}
+                ORDER BY t.fecha_pago DESC
+            """
+            
+            cursor.execute(query, params)
+            resultados = cursor.fetchall()
+            
+            transacciones = []
+            column_names = [desc[0] for desc in cursor.description]
+            
+            for row in resultados:
+                transaccion = dict(zip(column_names, row))
+                # Formatear fechas
+                for key in ['fecha_pago', 'fecha_registro']:
+                    if key in transaccion and transaccion[key]:
+                        if isinstance(transaccion[key], (datetime, date)):
+                            transaccion[key] = transaccion[key].isoformat()
+                transacciones.append(transaccion)
+                
+            return transacciones
+        
+        except Exception as e:
+            logger.error(f"Error obteniendo transacciones filtradas: {e}")
+            return []
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+    
+    @staticmethod
+    def obtener_transacciones_por_filtros(
+        fecha_desde: Optional[str] = None,
+        fecha_hasta: Optional[str] = None,
+        estado: Optional[str] = None,
+        forma_pago: Optional[str] = None,
+        estudiante_id: Optional[int] = None,
+        programa_id: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtener transacciones filtradas
+        """
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                logger.error("No se pudo obtener conexión a la base de datos")
+                return []
+            
+            cursor = connection.cursor()
+            
+            # Construir query dinámica
+            query = """
+                SELECT t.*, 
+                        e.nombres || ' ' || e.apellido_paterno as estudiante_nombre,
+                        p.nombre as programa_nombre,
+                        u.nombre_completo as usuario_registro
+                FROM transacciones t
+                LEFT JOIN estudiantes e ON t.estudiante_id = e.id
+                LEFT JOIN programas p ON t.programa_id = p.id
+                LEFT JOIN usuarios u ON t.registrado_por = u.id
+                WHERE 1=1
+            """
+            
+            params = []
+            
+            if fecha_desde:
+                query += " AND t.fecha_pago >= %s"
+                params.append(fecha_desde)
+                
+            if fecha_hasta:
+                query += " AND t.fecha_pago <= %s"
+                params.append(fecha_hasta)
+                
+            if estado:
+                query += " AND t.estado = %s"
+                params.append(estado)
+                
+            if forma_pago:
+                query += " AND t.forma_pago = %s"
+                params.append(forma_pago)
+                
+            if estudiante_id:
+                query += " AND t.estudiante_id = %s"
+                params.append(estudiante_id)
+                
+            if programa_id:
+                query += " AND t.programa_id = %s"
+                params.append(programa_id)
+                
+            query += " ORDER BY t.fecha_pago DESC, t.id DESC"
+            query += " LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            resultados = cursor.fetchall()
+            
+            transacciones = []
+            column_names = [desc[0] for desc in cursor.description]
+            
+            for row in resultados:
+                transaccion = dict(zip(column_names, row))
+                # Formatear fechas
+                for key in ['fecha_pago', 'fecha_registro']:
+                    if key in transaccion and transaccion[key]:
+                        if isinstance(transaccion[key], (datetime, date)):
+                            transaccion[key] = transaccion[key].strftime('%Y-%m-%d')
+                transacciones.append(transaccion)
+                
+            return transacciones
+        
+        except Exception as e:
+            logger.error(f"Error obteniendo transacciones filtradas: {e}")
+            return []
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+    
+    @staticmethod
+    def contar_transacciones_por_filtros(
+        fecha_desde: Optional[str] = None,
+        fecha_hasta: Optional[str] = None,
+        estado: Optional[str] = None,
+        forma_pago: Optional[str] = None,
+        estudiante_id: Optional[int] = None,
+        programa_id: Optional[int] = None
+    ) -> int:
+        """
+        Contar transacciones filtradas
+        """
+        connection = None
+        cursor = None
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                logger.error("No se pudo obtener conexión a la base de datos")
+                return 0
+
+            cursor = connection.cursor()
+
+            query = "SELECT COUNT(*) FROM transacciones t WHERE 1=1"
+            params = []
+
+            if fecha_desde:
+                query += " AND t.fecha_pago >= %s"
+                params.append(fecha_desde)
+
+            if fecha_hasta:
+                query += " AND t.fecha_pago <= %s"
+                params.append(fecha_hasta)
+
+            if estado:
+                query += " AND t.estado = %s"
+                params.append(estado)
+
+            if forma_pago:
+                query += " AND t.forma_pago = %s"
+                params.append(forma_pago)
+
+            if estudiante_id:
+                query += " AND t.estudiante_id = %s"
+                params.append(estudiante_id)
+
+            if programa_id:
+                query += " AND t.programa_id = %s"
+                params.append(programa_id)
+
+            cursor.execute(query, params)
+            resultado = cursor.fetchone()
+
+            return resultado[0] if resultado else 0
+
+        except Exception as e:
+            logger.error(f"Error contando transacciones: {e}")
+            return 0
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            
+            if connection:
+                Database.return_connection(connection)
+    

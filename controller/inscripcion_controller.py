@@ -13,9 +13,11 @@ from model.inscripcion_model import InscripcionModel
 from model.estudiante_model import EstudianteModel
 from model.programa_model import ProgramaModel
 
+from .base_controller import BaseController
+
 logger = logging.getLogger(__name__)
 
-class InscripcionController:
+class InscripcionController(BaseController):
     """Controlador para operaciones de inscripción"""
     
     # Configuración de directorios para documentos
@@ -419,6 +421,45 @@ class InscripcionController:
             return {
                 'success': False,
                 'message': f'Error obteniendo inscripciones: {str(e)}'
+            }
+    
+    @staticmethod
+    def obtener_informacion_pagos_inscripcion(inscripcion_id: int) -> Dict[str, Any]:
+        """
+        Obtener información completa de pagos de una inscripción
+        
+        Args:
+            inscripcion_id: ID de la inscripción
+            
+        Returns:
+            Dict con información de saldos, pagos y detalles
+        """
+        try:
+            from model.inscripcion_model import InscripcionModel
+            from model.transaccion_model import TransaccionModel
+            
+            # Obtener saldo pendiente del modelo
+            resultado_saldo = InscripcionModel.obtener_saldo_pendiente_inscripcion(inscripcion_id)
+            
+            if not resultado_saldo.get('exito'):
+                return resultado_saldo
+            
+            # Obtener transacciones de la inscripción
+            transacciones = TransaccionModel.obtener_transacciones_inscripcion(inscripcion_id)
+            
+            # Enriquecer resultado con transacciones
+            resultado_saldo['transacciones'] = transacciones
+            resultado_saldo['cantidad_transacciones'] = len(transacciones)
+            
+            return resultado_saldo
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo información de pagos inscripción {inscripcion_id}: {e}")
+            return {
+                'exito': False,
+                'error': str(e),
+                'saldo_pendiente': 0.0,
+                'transacciones': []
             }
     
     @staticmethod
