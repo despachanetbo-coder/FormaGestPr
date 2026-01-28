@@ -92,6 +92,69 @@ class TransaccionOverlay(BaseOverlay):
         
         logger.debug("✅ TransaccionOverlay inicializado")
     
+    def _previsualizar_numero_transaccion(self):
+        """Previsualizar número de transacción basado en los datos actuales."""
+        try:
+            from datetime import datetime
+
+            # Obtener datos actuales
+            fecha_pago = self.fecha_pago_input.date().toPython()
+            es_ingreso = True  # Por defecto asumimos ingreso
+
+            # Determinar si es ingreso o egreso basado en monto
+            total = self._calcular_total()
+            es_ingreso = total >= 0  # Puedes ajustar esta lógica
+
+            # Generar previsualización
+            from model.transaccion_model import TransaccionModel
+
+            numero_preview = TransaccionModel.generar_numero_transaccion(
+                fecha_pago=fecha_pago,
+                estudiante_id=self.estudiante_id,
+                programa_id=self.programa_id,
+                inscripcion_id=self.inscripcion_id,
+                usuario_id=1,  # ID temporal para previsualización
+                es_ingreso=es_ingreso
+            )
+
+            # Asegurar que numero_preview no sea None
+            if numero_preview is None:
+                numero_preview = "(Se generará al guardar)"
+
+            # Actualizar label
+            self.numero_transaccion_label.setText(str(numero_preview))
+            self.numero_transaccion_label.setStyleSheet("font-weight: bold; color: #27ae60;")
+
+        except Exception as e:
+            logger.error(f"Error previsualizando número: {e}")
+            self.numero_transaccion_label.setText("(Se generará al guardar)")
+    
+    def _calcular_total(self):
+        """Calcular total actual del formulario."""
+        subtotal = 0.0
+        
+        for row in range(self.tabla_detalles.rowCount()):
+            # Obtener widgets con verificación de tipos
+            widget_cant = self.tabla_detalles.cellWidget(row, 2)
+            widget_precio = self.tabla_detalles.cellWidget(row, 3)
+            
+            # Verificar que sean QDoubleSpinBox antes de usar value()
+            if (widget_cant and isinstance(widget_cant, QDoubleSpinBox) and
+                widget_precio and isinstance(widget_precio, QDoubleSpinBox)):
+                
+                try:
+                    subtotal += widget_cant.value() * widget_precio.value()
+                except (AttributeError, TypeError) as e:
+                    logger.warning(f"Error calculando subtotal fila {row}: {e}")
+                    continue
+                
+        return subtotal - self.descuento_input.value()
+    
+    def _on_datos_cambiados(self):
+        """Manejador cuando cambian datos que afectan el número de transacción."""
+        # Actualizar previsualización cuando cambian datos relevantes
+        self._previsualizar_numero_transaccion()
+    
     def setup_transaccion_ui(self):
         """Configurar UI específica para transacción."""
         # Crear área de desplazamiento
@@ -104,22 +167,22 @@ class TransaccionOverlay(BaseOverlay):
             }
         """)
         
-        # ▓▒░░▒▓ Widget contenedor del contenido ▓▒░░▒▓
+        # Widget contenedor del contenido
         content_widget = QWidget()
         content_widget.setObjectName("contentWidget")
         content_layout = QVBoxLayout(content_widget)
         content_layout.setSpacing(15)
         
-        # ▓▒░░▒▓ SECCIÓN 1: Información básica ▓▒░░▒▓
+        # SECCIÓN 1: Información básica
         self.setup_info_basica_section(content_layout)
         
-        # ▓▒░░▒▓ SECCIÓN 2: Detalles de la transacción ▓▒░░▒▓
+        # SECCIÓN 2: Detalles de la transacción 
         self.setup_detalles_section(content_layout)
         
-        # ▓▒░░▒▓ SECCIÓN 3: Documentos adjuntos ▓▒░░▒▓
+        # SECCIÓN 3: Documentos adjuntos
         self.setup_documentos_section(content_layout)
         
-        # ▓▒░░▒▓ SECCIÓN 4: Observaciones ▓▒░░▒▓
+        # SECCIÓN 4: Observaciones
         self.setup_observaciones_section(content_layout)
         
         # Configurar scroll area
@@ -134,6 +197,20 @@ class TransaccionOverlay(BaseOverlay):
         
         # Conectar señales específicas
         self.connect_signals_especificos()
+        
+        # Después de crear numero_transaccion_label, conectar señales
+        self.fecha_pago_input.dateChanged.connect(self._on_datos_cambiados)
+        
+        # También conectar cuando cambia estudiante o programa
+        if hasattr(self, 'btn_seleccionar_estudiante'):
+            self.btn_seleccionar_estudiante.clicked.connect(
+                lambda: QTimer.singleShot(100, self._on_datos_cambiados)
+            )
+        
+        if hasattr(self, 'btn_seleccionar_programa'):
+            self.btn_seleccionar_programa.clicked.connect(
+                lambda: QTimer.singleShot(100, self._on_datos_cambiados)
+            )
     
     # ▓▒░░▒▓ MÉTODOS DE CONFIGURACIÓN DE UI ▓▒░░▒▓
     
@@ -159,6 +236,14 @@ class TransaccionOverlay(BaseOverlay):
         self.numero_transaccion_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
         grid.addWidget(self.numero_transaccion_label, 0, 1)
         
+        # Agregar fila para tipo de operación (antes o después de fecha)
+        grid.addWidget(QLabel("Tipo de operación*:"), 1, 0)  # Ajustar índices según posición
+        self.tipo_operacion_combo = QComboBox()
+        self.tipo_operacion_combo.addItem("Ingreso", "INGRESO")
+        self.tipo_operacion_combo.addItem("Egreso", "EGRESO")
+        self.tipo_operacion_combo.currentTextChanged.connect(self._on_datos_cambiados)
+        grid.addWidget(self.tipo_operacion_combo, 1, 1)
+        
         # Fila 2: Fecha de pago
         grid.addWidget(QLabel("Fecha de pago*:"), 1, 0)
         self.fecha_pago_input = QDateEdit()
@@ -170,8 +255,16 @@ class TransaccionOverlay(BaseOverlay):
         # Fila 3: Estudiante (opcional)
         grid.addWidget(QLabel("Estudiante:"), 2, 0)
         estudiante_hbox = QHBoxLayout()
-        self.estudiante_label = QLabel("No seleccionado")
+        
+        # Inicializar el label sin texto fijo - se establecerá dinámicamente
+        self.estudiante_label = QLabel()
         self.estudiante_label.setStyleSheet("color: #7f8c8d;")
+        
+        # Si ya hay un estudiante_id, mostrar información inmediatamente
+        if self.estudiante_id:
+            self.estudiante_label.setText("Cargando...")
+        else:
+            self.estudiante_label.setText("No seleccionado")
         
         self.btn_seleccionar_estudiante = QPushButton("👤 Seleccionar")
         self.btn_seleccionar_estudiante.setObjectName("btnSeleccionarEstudiante")
@@ -350,7 +443,7 @@ class TransaccionOverlay(BaseOverlay):
         main_layout.setContentsMargins(15, 20, 15, 15)
         main_layout.setSpacing(12)
         
-        # ▓▒░░▒▓ SECCIÓN 1: Información de pago ▓▒░░▒▓
+        # SECCIÓN 1: Información de pago
         info_frame = QFrame()
         info_frame.setFrameShape(QFrame.Shape.StyledPanel)
         info_layout = QVBoxLayout(info_frame)
@@ -396,8 +489,7 @@ class TransaccionOverlay(BaseOverlay):
         # Fila 2: Número de comprobante
         comprobante_layout = QHBoxLayout()
         comprobante_layout.addWidget(QLabel("N° Comprobante:"))
-        self.numero_comprobante_input = QLineEdit()
-        self.numero_comprobante_input.setPlaceholderText("Opcional")
+        self.numero_comprobante_input = QLabel("(Generado automáticamente)")
         comprobante_layout.addWidget(self.numero_comprobante_input, 1)
         info_layout.addLayout(comprobante_layout)
         
@@ -413,7 +505,7 @@ class TransaccionOverlay(BaseOverlay):
         
         main_layout.addWidget(info_frame)
         
-        # ▓▒░░▒▓ SECCIÓN 2: Detalles de conceptos ▓▒░░▒▓
+        # SECCIÓN 2: Detalles de conceptos
         conceptos_frame = QFrame()
         conceptos_frame.setFrameShape(QFrame.Shape.StyledPanel)
         conceptos_layout = QVBoxLayout(conceptos_frame)
@@ -615,7 +707,7 @@ class TransaccionOverlay(BaseOverlay):
         
         # Reiniciar bandera de título
         self._titulo_actualizado = False
-
+        
         # Limpiar caches
         self._estudiante_cache = None
         self._programa_cache = None
@@ -833,9 +925,20 @@ class TransaccionOverlay(BaseOverlay):
             force: Si es True, forzar recarga ignorando cache
         """
         if not self.estudiante_id:
+            if hasattr(self, 'estudiante_label'):
+                self.estudiante_label.setText("No seleccionado")
+            if hasattr(self, 'btn_limpiar_estudiante'):
+                self.btn_limpiar_estudiante.setVisible(False)
+            if hasattr(self, 'btn_detalle_estudiante'):
+                self.btn_detalle_estudiante.setEnabled(False)
             return
         
         try:
+            # Mostrar estado de carga
+            if hasattr(self, 'estudiante_label'):
+                self.estudiante_label.setText("Cargando...")
+                self.estudiante_label.repaint()
+            
             # Usar cache si existe y no se fuerza recarga
             if self._estudiante_cache and not force:
                 estudiante = self._estudiante_cache
@@ -843,45 +946,108 @@ class TransaccionOverlay(BaseOverlay):
                 resultado = EstudianteModel.obtener_estudiante_por_id(self.estudiante_id)
                 logger.debug(f"Resultado estudiante: {resultado}")
                 
-                if resultado and 'success' in resultado and resultado['success']:
-                    estudiante = resultado.get('data', {})
-                    self._estudiante_cache = estudiante  # Cachear
+                # Verificar el tipo de respuesta
+                if isinstance(resultado, dict):
+                    # La respuesta ya es un diccionario con los datos del estudiante
+                    # No necesita envolverse en estructura {'success': True, 'data': ...}
+                    if 'id' in resultado:
+                        estudiante = resultado
+                        self._estudiante_cache = estudiante  # Cachear
+                    else:
+                        # Podría ser una respuesta con estructura de error
+                        error_msg = resultado.get('mensaje', 'Error desconocido') if resultado else 'Sin respuesta'
+                        logger.error(f"Error cargando estudiante: {error_msg}")
+                        if hasattr(self, 'estudiante_label'):
+                            self.estudiante_label.setText(f"Error: {error_msg[:50]}")
+                        if hasattr(self, 'btn_limpiar_estudiante'):
+                            self.btn_limpiar_estudiante.setVisible(False)
+                        if hasattr(self, 'btn_detalle_estudiante'):
+                            self.btn_detalle_estudiante.setEnabled(False)
+                        return
                 else:
-                    logger.error(f"Error en respuesta de estudiante: {resultado}")
+                    # Respuesta inesperada
+                    logger.error(f"Respuesta inesperada de obtener_estudiante_por_id: {type(resultado)}")
+                    if hasattr(self, 'estudiante_label'):
+                        self.estudiante_label.setText("Error de datos")
+                    if hasattr(self, 'btn_limpiar_estudiante'):
+                        self.btn_limpiar_estudiante.setVisible(False)
+                    if hasattr(self, 'btn_detalle_estudiante'):
+                        self.btn_detalle_estudiante.setEnabled(False)
                     return
         
         except Exception as e:
             logger.error(f"Error cargando estudiante: {e}")
+            if hasattr(self, 'estudiante_label'):
+                self.estudiante_label.setText(f"Error: {str(e)[:50]}")
+            if hasattr(self, 'btn_limpiar_estudiante'):
+                self.btn_limpiar_estudiante.setVisible(False)
+            if hasattr(self, 'btn_detalle_estudiante'):
+                self.btn_detalle_estudiante.setEnabled(False)
             return
         
-        if estudiante:
-            # Formatear nombre completo
-            nombre_completo = ""
-            if 'nombres_completos' in estudiante:
-                nombre_completo = estudiante['nombres_completos']
-            else:
-                nombre_completo = f"{estudiante.get('nombres', '')} {estudiante.get('apellido_paterno', '')}"
-                if estudiante.get('apellido_materno'):
-                    nombre_completo += f" {estudiante['apellido_materno']}"
+        # Procesar los datos del estudiante
+        if estudiante and isinstance(estudiante, dict):
+            try:
+                # Formatear nombre completo
+                nombre_completo = ""
+                if 'nombres_completos' in estudiante:
+                    nombre_completo = estudiante['nombres_completos']
+                else:
+                    # Construir nombre a partir de campos individuales
+                    nombres = estudiante.get('nombres', '')
+                    apellido_paterno = estudiante.get('apellido_paterno', '')
+                    apellido_materno = estudiante.get('apellido_materno', '')
                     
-            # Formatear CI
-            ci_completo = ""
-            if 'ci_completo' in estudiante:
-                ci_completo = estudiante['ci_completo']
-            else:
-                ci_completo = f"{estudiante.get('ci_numero', '')}-{estudiante.get('ci_expedicion', '')}"
+                    nombre_completo = f"{nombres} {apellido_paterno}".strip()
+                    if apellido_materno:
+                        nombre_completo += f" {apellido_materno}"
                 
-            # Actualizar label inmediatamente
-            self.estudiante_label.setText(f"{nombre_completo} ({ci_completo})")
-            
-            # Actualizar botones
-            self.btn_limpiar_estudiante.setVisible(True)
-            self.btn_detalle_estudiante.setEnabled(True)
-            
-            # Forzar actualización de la UI
-            self.estudiante_label.repaint()
-            
-            logger.debug(f"Estudiante cargado: {nombre_completo} ({ci_completo})")
+                # Formatear CI
+                ci_completo = ""
+                if 'ci_completo' in estudiante:
+                    ci_completo = estudiante['ci_completo']
+                else:
+                    ci_numero = estudiante.get('ci_numero', '')
+                    ci_expedicion = estudiante.get('ci_expedicion', '')
+                    if ci_numero and ci_expedicion:
+                        ci_completo = f"{ci_numero}-{ci_expedicion}"
+                    elif ci_numero:
+                        ci_completo = ci_numero
+                    else:
+                        ci_completo = "Sin CI"
+                
+                # Actualizar label
+                texto_estudiante = ""
+                if nombre_completo and ci_completo:
+                    texto_estudiante = f"{nombre_completo} ({ci_completo})"
+                elif nombre_completo:
+                    texto_estudiante = nombre_completo
+                else:
+                    texto_estudiante = f"Estudiante ID: {self.estudiante_id}"
+                
+                if hasattr(self, 'estudiante_label'):
+                    self.estudiante_label.setText(texto_estudiante)
+                
+                # Actualizar botones
+                if hasattr(self, 'btn_limpiar_estudiante'):
+                    self.btn_limpiar_estudiante.setVisible(True)
+                if hasattr(self, 'btn_detalle_estudiante'):
+                    self.btn_detalle_estudiante.setEnabled(True)
+                
+                # Forzar actualización de la UI
+                if hasattr(self, 'estudiante_label'):
+                    self.estudiante_label.repaint()
+                
+                logger.debug(f"Estudiante cargado: {texto_estudiante}")
+                
+            except Exception as e:
+                logger.error(f"Error procesando datos del estudiante: {e}")
+                if hasattr(self, 'estudiante_label'):
+                    self.estudiante_label.setText(f"Error procesando datos")
+                if hasattr(self, 'btn_limpiar_estudiante'):
+                    self.btn_limpiar_estudiante.setVisible(False)
+                if hasattr(self, 'btn_detalle_estudiante'):
+                    self.btn_detalle_estudiante.setEnabled(False)
     
     def _cargar_programa(self, force=False):
         """
@@ -1116,7 +1282,7 @@ class TransaccionOverlay(BaseOverlay):
         """Agregar conceptos por defecto basados en el programa."""
         if not self.programa_id:
             return
-    
+        
         try:
             from model.programa_model import ProgramaModel
             resultado = ProgramaModel.obtener_programa(self.programa_id)
@@ -1468,6 +1634,61 @@ class TransaccionOverlay(BaseOverlay):
         estudiante_overlay.estudiante_actualizado.connect(self._on_estudiante_seleccionado)
         estudiante_overlay.show_form(estudiante_id=self.estudiante_id, solo_lectura=True)
     
+    @staticmethod
+    def obtener_ultimo_numero_transaccion_dia(fecha_str=None):
+        """
+        Obtener el último número de transacción del día.
+        
+        Args:
+            fecha_str: Fecha en formato YYYYMMDD (opcional, si es None usa hoy)
+            
+        Returns:
+            str: Último número de transacción del día, o None si no hay
+        """
+        try:
+            from config.database import Database
+            from datetime import datetime, date
+            
+            # Si no se proporciona fecha, usar hoy
+            if fecha_str is None:
+                fecha_obj = date.today()
+                fecha_str = fecha_obj.strftime("%Y%m%d")
+            else:
+                # Convertir string a fecha
+                if len(fecha_str) == 8:  # YYYYMMDD
+                    fecha_obj = datetime.strptime(fecha_str, "%Y%m%d").date()
+                else:
+                    fecha_obj = date.today()
+                    fecha_str = fecha_obj.strftime("%Y%m%d")
+            
+            db = Database()
+            conn = db.get_connection()
+            if not conn:
+                logger.error("Error al intentar realizar la conexión a la base de datos")
+                return
+            
+            with conn.cursor() as cursor:
+                # Buscar transacciones del día
+                query = """
+                    SELECT numero_transaccion 
+                    FROM transacciones 
+                    WHERE fecha_pago = %s 
+                    AND numero_transaccion IS NOT NULL
+                    ORDER BY id DESC 
+                    LIMIT 1
+                """
+                cursor.execute(query, (fecha_obj,))
+                result = cursor.fetchone()
+                
+                if result and result[0]:
+                    return result[0]
+                else:
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Error obteniendo último número de transacción: {e}")
+            return None
+    
     def _on_estudiante_seleccionado(self, datos_estudiante):
         """
         Manejador cuando se selecciona un estudiante.
@@ -1772,7 +1993,7 @@ class TransaccionOverlay(BaseOverlay):
         return f"{bytes:.1f} TB"
     
     def guardar_formulario(self):
-        """Guardar la transacción usando el controlador."""
+        """Guardar la transacción."""
         try:
             # Validar formulario
             valido, errores = self.validar_formulario()
@@ -1783,80 +2004,120 @@ class TransaccionOverlay(BaseOverlay):
             # Obtener datos del formulario
             datos = self.obtener_datos()
             
-            # Obtener usuario actual (simulado por ahora)
-            # En un sistema real, obtendrías esto de la sesión
-            usuario_id = 1  # Administrador por defecto
+            # Generar número de transacción si no existe
+            if not datos.get('numero_transaccion') or datos['numero_transaccion'] == "(Generado automáticamente)":
+                try:
+                    # Intentar obtener la instancia del modelo
+                    from model.transaccion_model import TransaccionModel
+                    transaccion_model = TransaccionModel()
+                    
+                    # Generar número de transacción
+                    fecha_pago = self.fecha_pago_input.date().toPython()
+                    numero_transaccion = transaccion_model.generar_numero_transaccion(
+                        fecha_pago=fecha_pago,
+                        estudiante_id=self.estudiante_id,
+                        programa_id=self.programa_id,
+                        inscripcion_id=self.inscripcion_id,
+                        es_ingreso=True  # Asumimos que es ingreso
+                    )
+                    
+                    if numero_transaccion:
+                        datos['numero_transaccion'] = numero_transaccion
+                        self.numero_comprobante_input.setText(numero_transaccion)
+                        
+                except Exception as e:
+                    logger.error(f"Error generando número de transacción: {e}")
+                    # Generar número temporal
+                    from datetime import datetime
+                    fecha_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                    numero_temporal = f"TEMP-{fecha_str}"
+                    datos['numero_transaccion'] = numero_temporal
+                    self.numero_comprobante_input.setText(numero_temporal)
             
-            # Determinar tipo de pago basado en contexto
-            tipo_pago = self._determinar_tipo_pago(datos)
+            # Obtener usuario actual (esto debería venir de la sesión)
+            # Por ahora, usar un ID temporal
+            usuario_id = 1  # ID del usuario administrador por defecto
+            datos['registrado_por'] = usuario_id
+            
+            # Llamar al controlador para crear la transacción
+            from controller.transaccion_controller import TransaccionController
+            controller = TransaccionController()
             
             # Preparar datos para el controlador
             datos_transaccion = {
+                'numero_transaccion': datos.get('numero_transaccion'),
                 'fecha_pago': datos['fecha_pago'],
                 'forma_pago': datos['forma_pago'],
                 'monto_total': float(datos['monto_total']),
                 'descuento_total': float(datos['descuento_total']),
                 'monto_final': float(datos['monto_final']),
                 'estado': datos['estado'],
-                'tipo_pago': tipo_pago,
+                'observaciones': datos.get('observaciones', ''),
                 'registrado_por': usuario_id
             }
             
-            # Agregar datos opcionales
+            # Agregar IDs si existen
             if self.estudiante_id:
                 datos_transaccion['estudiante_id'] = self.estudiante_id
                 
             if self.programa_id:
                 datos_transaccion['programa_id'] = self.programa_id
                 
-            if datos.get('numero_comprobante'):
-                datos_transaccion['numero_comprobante'] = datos['numero_comprobante']
-                
-            if datos['forma_pago'] in ['TRANSFERENCIA', 'DEPOSITO']:
+            if self.inscripcion_id:
+                datos_transaccion['inscripcion_id'] = self.inscripcion_id
+            
+            # Agregar detalles
+            if 'detalles' in datos and datos['detalles']:
+                datos_transaccion['detalles'] = datos['detalles']
+            
+            # Agregar datos de transferencia si es necesario
+            if datos['forma_pago'] in ["TRANSFERENCIA", "DEPOSITO"]:
                 datos_transaccion['banco_origen'] = self.banco_origen_input.text().strip()
                 datos_transaccion['cuenta_origen'] = self.cuenta_origen_input.text().strip()
-                
-            if datos.get('observaciones'):
-                datos_transaccion['observaciones'] = datos['observaciones']
-                
-            # Agregar detalles
-            if datos.get('detalles'):
-                datos_transaccion['detalles'] = datos['detalles']
-                
-            # Agregar documentos temporales si existen
-            if self.documentos_temp:
-                datos_transaccion['documentos_temp'] = self.documentos_temp
-                
+            
             # Llamar al controlador
-            from controller.transaccion_controller import TransaccionController
-            controller = TransaccionController()
+            logger.info(f"Guardando transacción con datos: {datos_transaccion}")
             
             resultado = controller.crear_transaccion(datos_transaccion, usuario_id)
             
             if resultado.get('exito'):
-                self.mostrar_mensaje("✅ Éxito", "Transacción registrada correctamente", "success")
-                
-                # Emitir señal con datos de la transacción
+                # Emitir señal de transacción creada
                 self.transaccion_creada.emit({
                     'transaccion_id': resultado.get('transaccion_id'),
-                    'numero_transaccion': resultado.get('numero_transaccion'),
-                    'fecha_pago': datos['fecha_pago'],
-                    'monto_final': datos['monto_final'],
+                    'numero_transaccion': datos_transaccion['numero_transaccion'],
+                    'fecha_pago': datos_transaccion['fecha_pago'],
+                    'monto_final': datos_transaccion['monto_final'],
                     'estudiante_id': self.estudiante_id,
-                    'programa_id': self.programa_id
+                    'programa_id': self.programa_id,
+                    'inscripcion_id': self.inscripcion_id
                 })
                 
-                # Cerrar overlay
-                self.close()
+                # Mostrar mensaje de éxito
+                QMessageBox.information(
+                    self, 
+                    "✅ Transacción Guardada",
+                    f"Transacción {datos_transaccion['numero_transaccion']} guardada exitosamente.\n"
+                    f"Monto: ${datos_transaccion['monto_final']:,.2f}"
+                )
+                
+                # Cerrar el overlay después de un breve delay
+                QTimer.singleShot(1000, self.close)
+                
             else:
-                mensaje = resultado.get('mensaje', 'Error desconocido')
+                mensaje_error = resultado.get('mensaje', 'Error desconocido al guardar')
                 if 'errores' in resultado:
-                    mensaje += f"\nErrores: {', '.join(resultado['errores'])}"
-                self.mostrar_mensaje("❌ Error", mensaje, "error")
+                    mensaje_error += f"\nErrores: {', '.join(resultado['errores'])}"
+                
+                QMessageBox.critical(self, "❌ Error al Guardar", mensaje_error)
                 
         except Exception as e:
-            logger.error(f"Error al guardar transacción: {e}")
-            self.mostrar_mensaje("❌ Error", f"Error al guardar: {str(e)}", "error")
+            logger.error(f"Error crítico al guardar transacción: {e}")
+            QMessageBox.critical(
+                self, 
+                "❌ Error Crítico", 
+                f"No se pudo guardar la transacción: {str(e)}\n\n"
+                f"Por favor, verifique los datos e intente nuevamente."
+            )
     
     def _obtener_concepto_id_por_defecto(self) -> int:
         """

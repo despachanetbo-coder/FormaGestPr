@@ -574,7 +574,162 @@ class TransaccionModel(BaseModel):
             if connection is not None:
                 Database.return_connection(connection)
     
-    # En el archivo model/transaccion_model.py, agregar:
+    
+    @staticmethod
+    def actualizar_comprobante(transaccion_id, numero_comprobante):
+        """
+        Actualizar número de comprobante de una transacción.
+        
+        Args:
+            transaccion_id: ID de la transacción
+            numero_comprobante: Número de comprobante a asignar
+            
+        Returns:
+            bool: True si se actualizó correctamente
+        """
+        try:
+            from config.database import Database
+            
+            db = Database()
+            conn = db.get_connection()
+            if not conn:
+                logger.error("Error en la conexión con la base de datos")
+                return
+            
+            with conn.cursor() as cursor:
+                query = """
+                    UPDATE transacciones 
+                    SET numero_comprobante = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                    RETURNING id
+                """
+                cursor.execute(query, (numero_comprobante, transaccion_id))
+                
+                conn.commit()
+                
+                resultado = cursor.fetchone()
+                return resultado is not None
+                
+        except Exception as e:
+            logger.error(f"Error actualizando comprobante: {e}")
+            return False
+    
+    @staticmethod
+    def crear_transaccion(datos, usuario_id):
+        """
+        Crear una nueva transacción en la base de datos.
+        
+        Args:
+            datos: Diccionario con datos de la transacción
+            usuario_id: ID del usuario que registra
+            
+        Returns:
+            Dict: Datos de la transacción creada o None en caso de error
+        """
+        try:
+            from config.database import Database
+            from datetime import datetime
+            
+            db = Database()
+            conn = db.get_connection()
+            if not conn:
+                logger.error("Error en la conexión con la base de datos")
+                return
+            
+            with conn.cursor() as cursor:
+                # Query para insertar transacción
+                query = """
+                    INSERT INTO transacciones (
+                        numero_transaccion,
+                        estudiante_id,
+                        programa_id,
+                        fecha_pago,
+                        monto_total,
+                        descuento_total,
+                        monto_final,
+                        forma_pago,
+                        estado,
+                        numero_comprobante,
+                        banco_origen,
+                        cuenta_origen,
+                        observaciones,
+                        registrado_por,
+                        tipo_pago
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    RETURNING id, numero_transaccion, fecha_pago, monto_final
+                """
+                
+                # Preparar valores
+                valores = (
+                    datos.get('numero_transaccion'),
+                    datos.get('estudiante_id'),
+                    datos.get('programa_id'),
+                    datos.get('fecha_pago'),
+                    float(datos.get('monto_total', 0)),
+                    float(datos.get('descuento_total', 0)),
+                    float(datos.get('monto_final', 0)),
+                    datos.get('forma_pago'),
+                    datos.get('estado', 'REGISTRADO'),
+                    datos.get('numero_comprobante'),
+                    datos.get('banco_origen'),
+                    datos.get('cuenta_origen'),
+                    datos.get('observaciones'),
+                    usuario_id,
+                    datos.get('tipo_pago', 'OTROS')
+                )
+                
+                cursor.execute(query, valores)
+                
+                # Insertar detalles si existen
+                transaccion_id = cursor.fetchone()[0]
+                
+                if 'detalles' in datos and datos['detalles']:
+                    for detalle in datos['detalles']:
+                        detalle_query = """
+                            INSERT INTO transaccion_detalles (
+                                transaccion_id,
+                                concepto_pago_id,
+                                descripcion,
+                                cantidad,
+                                precio_unitario,
+                                subtotal,
+                                orden
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """
+                        
+                        detalle_valores = (
+                            transaccion_id,
+                            detalle.get('concepto_pago_id'),
+                            detalle.get('descripcion', ''),
+                            detalle.get('cantidad', 1),
+                            float(detalle.get('precio_unitario', 0)),
+                            float(detalle.get('subtotal', 0)),
+                            detalle.get('orden', 1)
+                        )
+                        
+                        cursor.execute(detalle_query, detalle_valores)
+                
+                # Guardar documentos si existen
+                if 'documentos_temp' in datos and datos['documentos_temp']:
+                    for documento in datos['documentos_temp']:
+                        # Aquí implementar la lógica para guardar documentos
+                        pass
+                
+                conn.commit()
+                
+                return {
+                    'id': transaccion_id,
+                    'numero_transaccion': datos.get('numero_transaccion'),
+                    'fecha_pago': datos.get('fecha_pago'),
+                    'monto_final': datos.get('monto_final')
+                }
+                
+        except Exception as e:
+            logger.error(f"Error creando transacción: {e}")
+            return None
     
     @staticmethod
     def crear_transaccion_completa(
@@ -705,20 +860,101 @@ class TransaccionModel(BaseModel):
             if connection:
                 Database.return_connection(connection)
             
-    @classmethod
-    def generar_numero_transaccion(cls) -> str:
-        """Generar número de transacción único"""
-        try:
-            import random
-            
-            fecha = datetime.now().strftime('%Y%m%d')
-            secuencia = str(random.randint(1000, 9999))
-            
-            return f"TRX-{fecha}-{secuencia}"
+    @staticmethod
+    def generar_numero_transaccion(fecha_pago, estudiante_id=None, programa_id=None, 
+                                  inscripcion_id=None, usuario_id=None, es_ingreso=True):
+        """
+        Generar número de transacción según el formato especificado.
         
+        Formato: yyyymmddxxxx-(i/e)-[eXXXXX-pXXXXX-iXXXXX-uXXXXX]
+        
+        Args:
+            fecha_pago: Fecha del pago (datetime.date)
+            estudiante_id: ID del estudiante (opcional)
+            programa_id: ID del programa (opcional)
+            inscripcion_id: ID de la inscripción (opcional)
+            usuario_id: ID del usuario que registra
+            es_ingreso: True si es ingreso, False si es egreso
+            
+        Returns:
+            str: Número de transacción generado
+        """
+        try:
+            from datetime import date
+            from config.database import Database
+            
+            # Formatear fecha
+            fecha_str = fecha_pago.strftime("%Y%m%d") if isinstance(fecha_pago, date) else fecha_pago.replace("-", "")
+            
+            # Contar transacciones del día
+            db = Database()
+            conn = db.get_connection()
+            if not conn:
+                logger.error("Error en la conexión con la base de datos")
+                return
+            
+            with conn.cursor() as cursor:
+                # Buscar el último número del día
+                query = """
+                    SELECT numero_transaccion 
+                    FROM transacciones 
+                    WHERE fecha_pago = %s 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                """
+                cursor.execute(query, (fecha_pago,))
+                result = cursor.fetchone()
+                
+                if result:
+                    ultimo_numero = result[0]
+                    # Extraer el contador xxxx
+                    if "-" in ultimo_numero:
+                        prefijo = ultimo_numero.split("-")[0]
+                        if len(prefijo) == 12:  # yyyymmddxxxx
+                            contador = int(prefijo[8:12])
+                            nuevo_contador = contador + 1
+                        else:
+                            # Formato diferente, empezar desde 1
+                            nuevo_contador = 1
+                    else:
+                        nuevo_contador = 1
+                else:
+                    nuevo_contador = 1
+                
+                # Formatear contador a 4 dígitos
+                contador_str = str(nuevo_contador).zfill(4)
+                
+                # Construir número base
+                numero_base = f"{fecha_str}{contador_str}"
+                
+                # Determinar tipo (i=ingreso, e=egreso)
+                tipo = "i" if es_ingreso else "e"
+                
+                # Construir identificadores
+                identificadores = []
+                
+                if estudiante_id:
+                    identificadores.append(f"e{str(estudiante_id).zfill(5)}")
+                if programa_id:
+                    identificadores.append(f"p{str(programa_id).zfill(5)}")
+                if inscripcion_id:
+                    identificadores.append(f"i{str(inscripcion_id).zfill(5)}")
+                if usuario_id:
+                    identificadores.append(f"u{str(usuario_id).zfill(5)}")
+                
+                # Combinar todo
+                if identificadores:
+                    numero_final = f"{numero_base}-{tipo}-" + "-".join(identificadores)
+                else:
+                    numero_final = f"{numero_base}-{tipo}"
+                
+                return numero_final
+                
         except Exception as e:
             logger.error(f"Error generando número de transacción: {e}")
-            return f"TRX-{int(datetime.now().timestamp())}"
+            # Fallback simple
+            fecha_str = fecha_pago.strftime("%Y%m%d") if isinstance(fecha_pago, date) else "00000000" # type: ignore
+            return f"{fecha_str}0001-i"
     
     @staticmethod
     def obtener_transacciones_filtradas(filtros: Optional[Dict] = None) -> List[Dict]:

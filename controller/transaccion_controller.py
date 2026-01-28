@@ -28,51 +28,132 @@ class TransaccionController:
         self.programa_model = ProgramaModel()
         self.concepto_model = ConceptoPagoModel()
     
-    def crear_transaccion(self, datos: Dict[str, Any], usuario_id: Optional[int] = None) -> Dict[str, Any]:
+    def crear_transaccion(self, datos_transaccion, usuario_id):
+        """Crear una nueva transacción."""
+        try:
+            from datetime import datetime
+            
+            # Determinar si es ingreso o egreso
+            es_ingreso = datos_transaccion.get('monto_final', 0) >= 0
+            # O puedes tener un campo específico en el formulario
+            # es_ingreso = datos_transaccion.get('tipo_operacion', 'INGRESO') == 'INGRESO'
+            
+            # Generar número de transacción
+            fecha_pago = datos_transaccion.get('fecha_pago')
+            if isinstance(fecha_pago, str):
+                from datetime import datetime
+                fecha_pago = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
+            
+            numero_transaccion = TransaccionModel.generar_numero_transaccion(
+                fecha_pago=fecha_pago,
+                estudiante_id=datos_transaccion.get('estudiante_id'),
+                programa_id=datos_transaccion.get('programa_id'),
+                inscripcion_id=datos_transaccion.get('inscripcion_id'),
+                usuario_id=usuario_id,
+                es_ingreso=es_ingreso
+            )
+            
+            # Agregar número a los datos
+            datos_transaccion['numero_transaccion'] = numero_transaccion
+            
+            # Llamar al modelo para crear
+            resultado = TransaccionModel.crear_transaccion(datos_transaccion, usuario_id)
+            
+            if resultado:
+                # También generar número de comprobante si aplica
+                if datos_transaccion.get('forma_pago') not in ['EFECTIVO', 'OTROS']:
+                    # Generar número de comprobante basado en la transacción
+                    numero_comprobante = self._generar_numero_comprobante(
+                        transaccion_id=resultado.get('id'),
+                        fecha_pago=fecha_pago,
+                        forma_pago=datos_transaccion.get('forma_pago')
+                    )
+                    
+                    # Actualizar transacción con número de comprobante
+                    if numero_comprobante:
+                        TransaccionModel.actualizar_comprobante(
+                            transaccion_id=resultado.get('id'),
+                            numero_comprobante=numero_comprobante
+                        )
+                        resultado['numero_comprobante'] = numero_comprobante
+                
+                resultado['numero_transaccion'] = numero_transaccion
+                return {'exito': True, 'transaccion_id': resultado.get('id'), 
+                        'numero_transaccion': numero_transaccion, 
+                        'mensaje': 'Transacción registrada exitosamente'}
+            else:
+                return {'exito': False, 'mensaje': 'Error al crear transacción'}
+                
+        except Exception as e:
+            logger.error(f"Error en crear_transaccion: {e}")
+            return {'exito': False, 'mensaje': str(e)}
+    
+    def _generar_numero_comprobante(self, transaccion_id, fecha_pago, forma_pago):
         """
-        Crear una nueva transacción
+        Generar número de comprobante único.
+        
+        Formato: TIPO-YYMM-XXXXXX
+        Ejemplo: TRF-2512-000123 (Transferencia de dic/2025, número 123)
         
         Args:
-            datos: Diccionario con datos de la transacción
-            usuario_id: ID del usuario que crea la transacción
+            transaccion_id: ID de la transacción
+            fecha_pago: Fecha del pago
+            forma_pago: Forma de pago
             
         Returns:
-            Dict con resultado de la operación
+            str: Número de comprobante generado
         """
         try:
-            # Validar datos requeridos
-            errores = self._validar_datos_transaccion(datos)
-            if errores:
-                return {
-                    'exito': False,
-                    'mensaje': 'Errores de validación',
-                    'errores': errores
-                }
+            from config.database import Database
             
-            # Preparar datos para el modelo
-            datos_preparados = self._preparar_datos_transaccion(datos, usuario_id)
-            
-            # Determinar qué tipo de transacción crear
-            if datos.get('inscripcion_id'):
-                # Transacción asociada a una inscripción
-                resultado = self._crear_transaccion_inscripcion(datos_preparados)
-            else:
-                # Transacción general
-                resultado = self._crear_transaccion_general(datos_preparados)
-            
-            # Manejar documentos adjuntos si la transacción fue exitosa
-            if resultado.get('exito') and datos.get('documentos_temp'):
-                transaccion_id = resultado['transaccion_id']
-                self._procesar_documentos_adjuntos(transaccion_id, datos['documentos_temp'], usuario_id)
-            
-            return resultado
-            
-        except Exception as e:
-            logger.error(f"Error al crear transacción: {e}")
-            return {
-                'exito': False,
-                'mensaje': f'Error al crear transacción: {str(e)}'
+            # Mapear tipo de comprobante
+            tipo_map = {
+                'TRANSFERENCIA': 'TRF',
+                'DEPOSITO': 'DEP',
+                'TARJETA_CREDITO': 'TDC',
+                'TARJETA_DEBITO': 'TDD',
+                'CHEQUE': 'CHQ',
+                'OTROS': 'OTR'
             }
+            
+            # Obtener prefijo
+            prefijo = tipo_map.get(forma_pago.upper() if forma_pago else 'OTROS', 'OTR')
+            
+            # Formatear mes/año
+            if isinstance(fecha_pago, str):
+                fecha_obj = datetime.strptime(fecha_pago, "%Y-%m-%d")
+            else:
+                fecha_obj = fecha_pago
+            
+            periodo = fecha_obj.strftime("%y%m")  # Ej: 2512 para dic 2025
+            
+            # Obtener secuencia del mes
+            db = Database()
+            conn = db.get_connection()
+            if not conn:
+                logger.error("Error en la conexión con la base de datos")
+                return
+            
+            with conn.cursor() as cursor:
+                # Contar transacciones del mismo tipo en el mes
+                query = """
+                    SELECT COUNT(*) 
+                    FROM transacciones 
+                    WHERE forma_pago = %s 
+                    AND EXTRACT(YEAR FROM fecha_pago) = %s 
+                    AND EXTRACT(MONTH FROM fecha_pago) = %s
+                """
+                cursor.execute(query, (forma_pago, fecha_obj.year, fecha_obj.month))
+                count = cursor.fetchone()[0]
+                
+                # Formatear secuencia (empezar desde 1)
+                secuencia = str(count + 1).zfill(6)
+                
+                return f"{prefijo}-{periodo}-{secuencia}"
+                
+        except Exception as e:
+            logger.error(f"Error generando número de comprobante: {e}")
+            return None
     
     def _crear_transaccion_inscripcion(self, datos: Dict[str, Any]) -> Dict[str, Any]:
         """

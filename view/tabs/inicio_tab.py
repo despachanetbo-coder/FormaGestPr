@@ -666,20 +666,44 @@ class InicioTab(BaseTab):
         if current_row < 0:
             self._mostrar_info("Ver Detalles", "Por favor, seleccione un registro de la tabla para ver detalles.")
             return
-        
+
         try:
             registro_id = self._obtener_id_registro_seleccionado()
             if not registro_id:
                 return
-            
+
             # Redirigir según vista actual
             if self.current_view == "estudiantes":
-                self._abrir_estudiante_overlay(registro_id, "lectura")
+                # Para estudiantes, mostrar el historial académico completo
+                main_window = self._get_main_window()
+                if main_window:
+                    try:
+                        from view.overlays.inscripcion_overlay import InscripcionOverlay
+                        overlay = InscripcionOverlay(main_window)
+
+                        overlay.show_form(
+                            solo_lectura=False,
+                            modo="historial",
+                            estudiante_id=registro_id,
+                            programa_id=None
+                        )
+
+                        overlay.inscripcion_creada.connect(lambda: self._on_refresh())
+                        overlay.inscripcion_actualizada.connect(lambda: self._on_refresh())
+                        overlay.overlay_closed.connect(lambda: overlay.deleteLater())
+
+                    except ImportError as e:
+                        logger.error(f"No se pudo importar InscripcionOverlay: {e}")
+                        # Fallback al método anterior
+                        self._abrir_estudiante_overlay(registro_id, "lectura")
+                else:
+                    self._abrir_estudiante_overlay(registro_id, "lectura")
+
             elif self.current_view == "docentes":
                 self._abrir_docente_overlay(registro_id, "lectura")
             elif self.current_view == "programas":
                 self._abrir_programa_overlay(registro_id, "lectura")
-                
+
         except Exception as e:
             logger.error(f"Error viendo detalles: {e}")
             self._mostrar_error(f"Error al ver detalles: {str(e)}")
@@ -1168,40 +1192,41 @@ class InicioTab(BaseTab):
     # =========================================================================
     
     def _on_view_student_history(self):
-        """Ver historial académico del estudiante."""
+        """Ver historial académico del estudiante (inscripciones y pagos)."""
         estudiante_id = self._obtener_id_registro_seleccionado()
         if not estudiante_id:
+            self._mostrar_info("Historial Académico", "Por favor, seleccione un estudiante de la tabla.")
             return
-        
-        try:
-            programas = EstudianteModel.obtener_programas_estudiante(estudiante_id)
-            
-            if programas:
-                detalles = f"<h3>📚 Historial Académico</h3>"
-                detalles += f"<p><b>Total de programas: {len(programas)}</b></p>"
-                detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
-                detalles += "<tr><th>Programa</th><th>Estado</th><th>Fecha Inscripción</th><th>Costo</th><th>Pagado</th><th>Saldo</th></tr>"
-                
-                for programa in programas:
-                    detalles += f"""
-                    <tr>
-                        <td>{programa.get('programa_nombre', '')} ({programa.get('programa_codigo', '')})</td>
-                        <td>{programa.get('estado_inscripcion', '')}</td>
-                        <td>{programa.get('fecha_inscripcion', '')}</td>
-                        <td>${programa.get('costo_total', 0):,.2f}</td>
-                        <td>${programa.get('costo_pagado', 0):,.2f}</td>
-                        <td>${programa.get('saldo_pendiente', 0):,.2f}</td>
-                    </tr>
-                    """
-                detalles += "</table>"
-            else:
-                detalles = "<p>El estudiante no tiene historial académico registrado.</p>"
-            
-            QMessageBox.information(self, "Historial Académico", detalles)
-            
-        except Exception as e:
-            logger.error(f"Error obteniendo historial académico: {e}")
-            self._mostrar_error(f"Error al obtener historial: {str(e)}")
+
+        main_window = self._get_main_window()
+        if main_window:
+            try:
+                from view.overlays.inscripcion_overlay import InscripcionOverlay
+                overlay = InscripcionOverlay(main_window)
+
+                # Configurar overlay para mostrar todas las inscripciones del estudiante
+                overlay.show_form(
+                    solo_lectura=True,  # Permitir agregar transacciones si es necesario
+                    modo="historial",
+                    estudiante_id=estudiante_id,
+                    programa_id=None  # Mostrar TODAS las inscripciones
+                )
+
+                # Conectar señales para refrescar datos después de acciones
+                overlay.inscripcion_creada.connect(lambda: self._on_refresh())
+                overlay.inscripcion_actualizada.connect(lambda: self._on_refresh())
+
+                # Manejar cierre del overlay
+                overlay.overlay_closed.connect(lambda: overlay.deleteLater())
+
+            except ImportError as e:
+                logger.error(f"No se pudo importar InscripcionOverlay: {e}")
+                self._mostrar_info(
+                    "Historial Académico",
+                    f"Funcionalidad no disponible temporalmente. Error: {e}"
+                )
+        else:
+            self._mostrar_error("No se pudo obtener la ventana principal.")
     
     def _on_new_enrollment_student(self):
         """Nueva inscripción para el estudiante seleccionado."""
@@ -1230,20 +1255,48 @@ class InicioTab(BaseTab):
                 )
     
     def _on_view_student_payments(self):
-        """Ver pagos del estudiante."""
+        """Ver pagos del estudiante (alternativa al historial académico)."""
         estudiante_id = self._obtener_id_registro_seleccionado()
         if not estudiante_id:
+            self._mostrar_info("Ver Pagos", "Por favor, seleccione un estudiante de la tabla.")
             return
-        
+
+        # Opción 1: Usar InscripcionOverlay enfocado en pagos
+        main_window = self._get_main_window()
+        if main_window:
+            try:
+                from view.overlays.inscripcion_overlay import InscripcionOverlay
+                overlay = InscripcionOverlay(main_window)
+
+                overlay.show_form(
+                    solo_lectura=False,
+                    modo="pagos",
+                    estudiante_id=estudiante_id,
+                    programa_id=None
+                )
+
+                overlay.inscripcion_creada.connect(lambda: self._on_refresh())
+                overlay.inscripcion_actualizada.connect(lambda: self._on_refresh())
+                overlay.overlay_closed.connect(lambda: overlay.deleteLater())
+
+            except ImportError as e:
+                logger.error(f"No se pudo importar InscripcionOverlay: {e}")
+                # Fallback al método original
+                self._ver_pagos_estudiante_fallback(estudiante_id)
+        else:
+            self._ver_pagos_estudiante_fallback(estudiante_id)
+
+    def _ver_pagos_estudiante_fallback(self, estudiante_id: int):
+        """Método fallback para ver pagos del estudiante (sin InscripcionOverlay)."""
         try:
             pagos = EstudianteModel.obtener_pagos_estudiante_programa(estudiante_id)
-            
+
             if pagos:
                 detalles = f"<h3>💰 Historial de Pagos</h3>"
                 detalles += f"<p><b>Total de transacciones: {len(pagos)}</b></p>"
                 detalles += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
                 detalles += "<tr><th>Fecha</th><th>Forma Pago</th><th>Monto</th><th>Comprobante</th><th>Programa</th><th>Estado</th></tr>"
-                
+
                 total_pagado = 0
                 for pago in pagos:
                     monto = pago.get('monto_final', 0)
@@ -1261,9 +1314,9 @@ class InicioTab(BaseTab):
                 detalles += f"</table><p><b>Total pagado: ${total_pagado:,.2f}</b></p>"
             else:
                 detalles = "<p>No se encontraron pagos para este estudiante.</p>"
-            
+
             QMessageBox.information(self, "Historial de Pagos", detalles)
-            
+
         except Exception as e:
             logger.error(f"Error obteniendo pagos: {e}")
             self._mostrar_error(f"Error al obtener pagos: {str(e)}")

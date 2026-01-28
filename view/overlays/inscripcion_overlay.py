@@ -1874,39 +1874,71 @@ class InscripcionOverlay(BaseOverlay):
             
             # Configurar algunos valores por defecto en el overlay
             def configurar_valores_por_defecto():
-                # Establecer monto sugerido
-                if hasattr(transaccion_overlay, 'monto_total_input'):
-                    transaccion_overlay.monto_total_input.setValue(float(monto_sugerido))
-                    transaccion_overlay._actualizar_total()  # Actualizar cálculo
-                
+                # Buscar el widget de monto por diferentes nombres posibles
+                monto_widget = None
+                monto_widget_names = [
+                    'monto_input', 'monto_total_input', 'monto_final_input',
+                    'input_monto', 'monto_spinbox', 'spinbox_monto',
+                    'montoDoubleSpinBox', 'montoLineEdit'
+                ]
+
+                for widget_name in monto_widget_names:
+                    if hasattr(transaccion_overlay, widget_name):
+                        monto_widget = getattr(transaccion_overlay, widget_name)
+                        logger.debug(f"Encontrado widget de monto: {widget_name}")
+                        break
+                    
+                if monto_widget:
+                    # Establecer monto sugerido
+                    try:
+                        # Si es QDoubleSpinBox
+                        if hasattr(monto_widget, 'setValue'):
+                            monto_widget.setValue(float(monto_sugerido))
+                        # Si es QLineEdit
+                        elif hasattr(monto_widget, 'setText'):
+                            monto_widget.setText(f"{monto_sugerido:.2f}")
+
+                        # Actualizar cálculo si existe el método
+                        if hasattr(transaccion_overlay, '_actualizar_total'):
+                            transaccion_overlay._actualizar_total()
+                    except Exception as e:
+                        logger.error(f"Error estableciendo monto: {e}")
+
                 # Establecer observaciones sugeridas
-                if hasattr(transaccion_overlay, 'observaciones_input'):
-                    transaccion_overlay.observaciones_input.setPlainText(observaciones)
-                
+                transaccion_overlay.observaciones_input.setPlainText(observaciones)
+
                 # Configurar límites según saldo pendiente
-                if hasattr(transaccion_overlay, 'monto_total_input') and saldo_pendiente > 0:
+                if monto_widget and saldo_pendiente > 0:
                     # Establecer máximo como saldo pendiente
-                    transaccion_overlay.monto_total_input.setMaximum(float(saldo_pendiente))
+                    if hasattr(monto_widget, 'setMaximum'):
+                        monto_widget.setMaximum(float(saldo_pendiente))
+                    elif hasattr(monto_widget, 'setValidator'):
+                        # Para QLineEdit, podemos establecer un validador
+                        from PySide6.QtGui import QDoubleValidator
+                        validator = QDoubleValidator(0.0, float(saldo_pendiente), 2)
+                        monto_widget.setValidator(validator)
+
                     # Sugerir que no exceda el saldo pendiente
-                    transaccion_overlay.monto_total_input.setToolTip(
-                        f"Saldo pendiente: {saldo_pendiente:.2f} Bs.\n"
-                        f"Monto sugerido: {monto_sugerido:.2f} Bs."
-                    )
-                
+                    if hasattr(monto_widget, 'setToolTip'):
+                        monto_widget.setToolTip(
+                            f"Saldo pendiente: {saldo_pendiente:.2f} Bs.\n"
+                            f"Monto sugerido: {monto_sugerido:.2f} Bs."
+                        )
+
                 # Actualizar título
                 titulo = f"💰 Nueva Transacción - Inscripción {inscripcion_id}"
                 if saldo_pendiente > 0:
                     titulo += f" (Saldo pendiente: {saldo_pendiente:.2f} Bs.)"
                 transaccion_overlay.set_titulo(titulo)
-                
+
                 # Sugerir forma de pago basada en el monto
                 self._sugerir_forma_pago(transaccion_overlay, monto_sugerido)
-            
+
             # Usar un timer para configurar los valores después de que se muestre el overlay
             QTimer.singleShot(100, configurar_valores_por_defecto)
-            
+
             logger.debug(f"✅ Abriendo TransaccionOverlay para inscripción {inscripcion_id}")
-        
+
         except Exception as e:
             logger.error(f"Error abriendo TransaccionOverlay: {e}")
             self.mostrar_mensaje("❌ Error", 
