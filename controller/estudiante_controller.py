@@ -128,22 +128,25 @@ class EstudianteController(BaseController):
                     'success': False,
                     'message': f'Estudiante con ID {estudiante_id} no encontrado'
                 }
-            
+                
             # 3. Verificar CI único si cambió
-            if 'ci_numero' in datos_limpios:
+            if 'ci_numero' in datos_limpios and datos_limpios['ci_numero']:
                 ci_actual = estudiante_actual.get('ci_numero')
                 ci_nuevo = datos_limpios['ci_numero']
-
+                
                 # Extraer valor si es diccionario
                 if isinstance(ci_nuevo, dict):
                     ci_nuevo = ci_nuevo.get('value') if isinstance(ci_nuevo.get('value'), str) else str(ci_nuevo)
-                
-                if ci_nuevo != ci_actual:
-                    if EstudianteModel.verificar_ci_existente(ci_nuevo, excluir_id=estudiante_id):
-                        return {
-                            'success': False,
-                            'message': f"El CI {ci_nuevo} ya está registrado por otro estudiante"
-                        }
+                    
+                # Asegurar que ci_nuevo no sea None o vacío
+                if ci_nuevo and str(ci_nuevo).strip():
+                    if ci_nuevo != ci_actual:
+                        # Ahora ci_nuevo está garantizado como string no vacío
+                        if EstudianteModel.verificar_ci_existente(str(ci_nuevo).strip(), excluir_id=estudiante_id): # <-- Línea 142 corregida
+                            return {
+                                'success': False,
+                                'message': f"El CI {ci_nuevo} ya está registrado por otro estudiante"
+                            }
                 
             # 4. Verificar email único si cambió
             if 'email' in datos_limpios and datos_limpios['email']:
@@ -154,13 +157,16 @@ class EstudianteController(BaseController):
                 if isinstance(email_nuevo, dict):
                     email_nuevo = email_nuevo.get('value') if isinstance(email_nuevo.get('value'), str) else str(email_nuevo)
                 
-                if email_nuevo != email_actual:
-                    if EstudianteModel.verificar_email_existente(email_nuevo, excluir_id=estudiante_id):
-                        return {
-                            'success': False,
-                            'message': f"El email {email_nuevo} ya está registrado por otro estudiante"
-                        }
-                
+                # Asegurar que email_nuevo no sea None o vacío
+                if email_nuevo and str(email_nuevo).strip():
+                    if email_nuevo != email_actual:
+                        # Ahora email_nuevo está garantizado como string no vacío
+                        if EstudianteModel.verificar_email_existente(str(email_nuevo).strip(), excluir_id=estudiante_id): # <-- Línea 158 corregida
+                            return {
+                                'success': False,
+                                'message': f"El email {email_nuevo} ya está registrado por otro estudiante"
+                            }
+            
             # 5. Actualizar en la base de datos
             # Ahora pasamos directamente el diccionario al modelo
             resultado_modelo = EstudianteModel.actualizar_estudiante(estudiante_id, datos_limpios)
@@ -176,7 +182,7 @@ class EstudianteController(BaseController):
                     'success': False,
                     'message': resultado_modelo.get('message', 'Error al actualizar estudiante')
                 }
-            
+        
         except Exception as e:
             logger.error(f"Error actualizando estudiante {estudiante_id}: {e}")
             return {

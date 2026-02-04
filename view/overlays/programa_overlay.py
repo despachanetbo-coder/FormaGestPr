@@ -1429,48 +1429,72 @@ class ProgramaOverlay(BaseOverlay):
     def on_guardar(self):
         """Método sobrescrito para manejar el guardado con señales específicas"""
         valido, errores = self.validar_formulario()
-
+        
         if not valido:
             errores_str = "\n".join(errores)
             QMessageBox.warning(self, "Error de validación", 
                                 f"Por favor corrija los siguientes errores:\n\n{errores_str}")
             return
-
+        
         try:
             # Importar modelo aquí para evitar dependencias circulares
             from model.programa_model import ProgramaModel
-
+            
             datos = self.obtener_datos()
             
-
             # Agregar ID si estamos en modo edición
             if self.modo == "editar" and self.programa_id:
                 datos['id'] = self.programa_id
-
+                
             # LLAMAR AL MODELO DIRECTAMENTE
             if self.modo == "nuevo":
                 # Crear nuevo programa
                 resultado = ProgramaModel.crear_programa(datos)
                 if resultado.get('success'):
-                    self.programa_guardado.emit(resultado.get('data', datos))
-                    QMessageBox.information(self, "Éxito", "Programa creado exitosamente")
+                    programa_guardado = resultado.get('data', datos)
+                    
+                    # Emitir señal con los datos completos
+                    self.programa_guardado.emit(programa_guardado)
+                    
+                    # Mostrar mensaje de éxito
+                    QMessageBox.information(self, "✅ Éxito", 
+                                            f"Programa creado exitosamente\n\nCódigo: {programa_guardado.get('codigo', 'N/A')}")
+                    
+                    # Cerrar este overlay (de creación/edición)
                     self.close_overlay()
+                    
+                    # EL OVERLAY EN MODO LECTURA SE ABRIRÁ DESDE LA SEÑAL
+                    logger.info(f"✅ Programa creado: {programa_guardado.get('codigo')} (ID: {programa_guardado.get('id')})")
+                
                 else:
-                    QMessageBox.critical(self, "Error", resultado.get('message', 'Error desconocido'))
-
+                    QMessageBox.critical(self, "❌ Error", 
+                                        resultado.get('message', 'Error desconocido al crear el programa'))
+            
             elif self.modo == "editar":
                 # Actualizar programa existente                
                 resultado = ProgramaModel.actualizar_programa(datos["id"], datos)
                 if resultado.get('success'):
-                    self.programa_actualizado.emit(resultado.get('data', datos))
-                    QMessageBox.information(self, "Éxito", "Programa actualizado exitosamente")
+                    programa_actualizado = resultado.get('data', datos)
+                    
+                    # Emitir señal
+                    self.programa_actualizado.emit(programa_actualizado)
+                    
+                    # Mostrar mensaje de éxito
+                    QMessageBox.information(self, "✅ Éxito", 
+                                            f"Programa actualizado exitosamente\n\nCódigo: {programa_actualizado.get('codigo', 'N/A')}")
+                    
+                    # Cerrar este overlay (de edición)
                     self.close_overlay()
+                    
+                    # EL OVERLAY EN MODO LECTURA SE ABRIRÁ DESDE LA SEÑAL
+                    logger.info(f"✅ Programa actualizado: {programa_actualizado.get('codigo')} (ID: {programa_actualizado.get('id')})")
+                
                 else:
-                    QMessageBox.critical(self, "Error", resultado.get('message', 'Error desconocido'))
-
-            logger.info(f"✅ Programa {'creado' if self.modo == 'nuevo' else 'actualizado'}: {datos.get('codigo')}")
-
+                    QMessageBox.critical(self, "❌ Error", 
+                                        resultado.get('message', 'Error desconocido al actualizar el programa'))
+        
         except Exception as e:
             logger.error(f"❌ Error al guardar programa: {e}")
-            QMessageBox.critical(self, "Error", 
+            QMessageBox.critical(self, "❌ Error", 
                                 f"Error al guardar el programa:\n\n{str(e)}")
+    

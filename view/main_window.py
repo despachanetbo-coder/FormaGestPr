@@ -53,10 +53,13 @@ class MainWindow(QMainWindow):
         
         self.init_ui()
         self.load_styles()
-
+        
         if enable_hot_reload:
             self.setup_style_watcher()
         
+        # Crear diccionario para rastrear overlays abiertos
+        self.programa_overlays = {}
+    
     def setup_overlay_system(self):
         """Configurar sistema global de overlays"""
         # Widget oscurecedor
@@ -72,7 +75,7 @@ class MainWindow(QMainWindow):
         
         # Track overlays activos
         self.active_overlays = set()
-        
+    
     def init_ui(self) -> None:
         """Inicializar la interfaz de usuario con pestañas"""
         self.setWindowTitle("Sistema de Gestión Académica")
@@ -91,7 +94,7 @@ class MainWindow(QMainWindow):
         
         # Crear las pestañas usando las clases específicas
         self._create_tabs()
-        
+    
     def _create_tabs(self) -> None:
         """Crear todas las pestañas de la aplicación"""
         
@@ -125,7 +128,7 @@ class MainWindow(QMainWindow):
         # Pestaña 6: Ayuda
         ayuda_tab = AyudaTab(user_data=self.user_data)
         self._add_tab_to_widget(ayuda_tab, 4)
-
+    
     def _add_tab_to_widget(self, tab: BaseTab, index: int) -> None:
         """Agregar una pestaña al widget y guardar referencia"""
         self.tab_widget.insertTab(index, tab, tab.get_tab_name())
@@ -193,7 +196,7 @@ class MainWindow(QMainWindow):
             except ImportError as e:
                 print(f"❌ No se pudo importar ProgramaOverlay: {e}")
                 self.overlay_programa = None
-
+    
     def _init_overlay_estudiante(self):
         """Inicializar overlay de estudiante - REEMPLAZAR"""
         if self.overlay_estudiante is None:
@@ -212,7 +215,7 @@ class MainWindow(QMainWindow):
             except ImportError as e:
                 print(f"❌ No se pudo importar EstudianteOverlay: {e}")
                 self.overlay_estudiante = None
-
+    
     def _init_overlay_docente(self):
         """Inicializar overlay de docente - REEMPLAZAR"""
         if self.overlay_docente is None:
@@ -231,59 +234,59 @@ class MainWindow(QMainWindow):
             except ImportError as e:
                 print(f"❌ No se pudo importar DocenteOverlay: {e}")
                 self.overlay_docente = None
-
+    
     def show_overlay(self, overlay_widget):
         """Mostrar cualquier overlay con oscurecimiento - REEMPLAZAR"""
         print(f"🔵 show_overlay() para {overlay_widget.__class__.__name__ if overlay_widget else 'None'}")
-
+        
         if overlay_widget is None:
             print("❌ Error: Overlay no inicializado")
             return False
-
+        
         # Ajustar tamaño al 95% de la ventana principal
         parent_size = self.size()
         overlay_width = int(parent_size.width() * 0.95)
         overlay_height = int(parent_size.height() * 0.95)
-
+        
         # Calcular posición para centrar
         overlay_x = (parent_size.width() - overlay_width) // 2
         overlay_y = (parent_size.height() - overlay_height) // 2
-
+        
         # Configurar geometría del overlay
         overlay_widget.setGeometry(overlay_x, overlay_y, overlay_width, overlay_height)
-
+        
         # Agregar a overlays activos (SET evita duplicados)
         self.active_overlays.add(overlay_widget)
         print(f"   Overlays activos: {len(self.active_overlays)}")
-
+        
         # Mostrar oscurecedor (siempre que haya al menos un overlay)
         self.overlay_darkener.setGeometry(self.rect())
         self.overlay_darkener.show()
         self.overlay_darkener.raise_()
-
+        
         # Mostrar overlay
         overlay_widget.show()
         overlay_widget.raise_()
-
+        
         print(f"✅ Overlay mostrado: {overlay_widget.__class__.__name__}")
         return True
-
+    
     def _on_overlay_closed(self, overlay_widget):
         """Manejador cuando se cierra un overlay - VERSIÓN SIMPLE Y CORRECTA"""
         print(f"🔵 CERRANDO overlay: {overlay_widget.__class__.__name__ if overlay_widget else 'None'}")
-
+        
         if not overlay_widget:
             return
-
+        
         # 1. Ocultar el overlay (NO necesita geometría para hide)
         overlay_widget.hide()
-
+        
         # 2. Remover de overlays activos (usar discard para evitar errores)
         self.active_overlays.discard(overlay_widget)
-
+        
         # 3. Debug: mostrar estado
         print(f"   Overlays activos restantes: {len(self.active_overlays)}")
-
+        
         # 4. Ocultar oscurecedor SOLO si no hay overlays activos
         if not self.active_overlays:
             # Ocultar inmediatamente
@@ -294,48 +297,48 @@ class MainWindow(QMainWindow):
             print("✅ Oscurecedor OCULTADO (no hay overlays)")
         else:
             print(f"⚠️  Oscurecedor MANTENIDO ({len(self.active_overlays)} overlay(s) activo(s))")
-
+    
     def hide_overlay(self, overlay_widget):
         """Ocultar overlay específico - REEMPLAZAR (alias para compatibilidad)"""
         self._on_overlay_closed(overlay_widget)
-
+    
     def close_all_overlays(self):
         """Cerrar todos los overlays activos - REEMPLAZAR"""
         print(f"🔵 close_all_overlays() - {len(self.active_overlays)} overlay(s) activo(s)")
-
+        
         # Crear lista para evitar modificar el set durante la iteración
         overlays_to_close = list(self.active_overlays)
-
+        
         for overlay in overlays_to_close:
             if overlay:
                 overlay.hide()
                 if overlay in self.active_overlays:
                     self.active_overlays.remove(overlay)
-
+        
         # Ocultar oscurecedor
         self.overlay_darkener.hide()
         self.overlay_darkener.update()
-
+        
         print("✅ Todos los overlays cerrados")
-
+    
     def resizeEvent(self, event):
         """Manejar redimensionamiento de la ventana principal - REEMPLAZAR"""
         super().resizeEvent(event)
-
+        
         # Actualizar tamaño del oscurecedor global
         self.overlay_darkener.setGeometry(self.rect())
-
+        
         # Redimensionar overlays activos que estén visibles
         for overlay in self.active_overlays:
             if overlay and overlay.isVisible():
                 parent_size = self.size()
                 overlay_width = int(parent_size.width() * 0.95)
                 overlay_height = int(parent_size.height() * 0.95)
-
+                
                 # Calcular posición para centrar
                 overlay_x = (parent_size.width() - overlay_width) // 2
                 overlay_y = (parent_size.height() - overlay_height) // 2
-
+                
                 overlay.setGeometry(overlay_x, overlay_y, overlay_width, overlay_height)
     
     # ===== MÉTODOS DE MENSAJES =====
@@ -343,7 +346,7 @@ class MainWindow(QMainWindow):
     def mostrar_mensaje(self, mensaje: str, tipo: str = "info", duracion: int = 3000) -> None:
         """
         Mostrar un mensaje emergente
-
+        
         Args:
             mensaje: Texto del mensaje
             tipo: Tipo de mensaje ("info", "exito", "error", "advertencia")
@@ -356,23 +359,23 @@ class MainWindow(QMainWindow):
             "error": QMessageBox.Icon.Critical,
             "advertencia": QMessageBox.Icon.Warning
         }
-
+        
         icon = icon_map.get(tipo, QMessageBox.Icon.Information)
-
+        
         # Crear y mostrar mensaje
         msg_box = QMessageBox(self)
         msg_box.setIcon(icon)
         msg_box.setText(mensaje)
         msg_box.setWindowTitle(tipo.capitalize())
-
+        
         # Configurar botones según tipo
         if tipo == "error":
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
         else:
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
-
+            
         msg_box.exec()
-
+        
         # También imprimir en consola
         icon_char = "✅" if tipo == "exito" else "❌" if tipo == "error" else "⚠️" if tipo == "advertencia" else "ℹ️"
         print(f"{icon_char} {mensaje}")
@@ -386,7 +389,7 @@ class MainWindow(QMainWindow):
         if not self.overlay_programa:
             self.mostrar_mensaje("Error al inicializar el overlay de programa", "error")
             return
-            
+        
         try:
             self.overlay_programa.clear_form()
             self.overlay_programa.set_titulo("🏛️ Nuevo Programa Académico - UNSXX")
@@ -400,7 +403,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Error al mostrar overlay de programa: {e}")
             self.mostrar_mensaje(f"Error al mostrar formulario: {str(e)}", "error")
-        
+    
     def mostrar_editar_programa(self, programa_id: int):
         """Mostrar overlay para editar programa existente"""
         self._init_overlay_programa()
@@ -439,41 +442,56 @@ class MainWindow(QMainWindow):
             self.mostrar_mensaje(resultado['message'], "error")
     
     def _on_programa_guardado(self, unsxx_data: dict) -> None:
-        """Manejador cuando se guarda un nuevo programa"""
+        """Manejador cuando se guarda un nuevo programa - AHORA ABRE EN MODO LECTURA"""
         print("=" * 50)
         print("✅ _on_programa_guardado EJECUTADO en MainWindow!")
-        
+
         if not unsxx_data:
             print("❌ Error: Datos vacíos recibidos")
             self.mostrar_mensaje("No se recibieron datos del formulario", "error")
             return
-        
-        print(f"Datos recibidos: {unsxx_data.get('codigo', 'Sin código')}")
-        
+
+        programa_id = unsxx_data.get('id')
+        codigo = unsxx_data.get('codigo', 'Sin código')
+        print(f"Datos recibidos: {codigo} (ID: {programa_id})")
+
         try:
             # 1. Convertir datos UNSXX a formato estándar
             converter = UNSXXConverter()
             programa_data = converter.convertir_unsxx_a_programa(unsxx_data)
-            
+
             if not programa_data:
                 print("❌ Error: No se pudieron convertir los datos")
                 self.mostrar_mensaje("Error al procesar datos del programa", "error")
                 return
-            
+
             print(f"✅ Datos convertidos: {programa_data.get('codigo')}")
-            
+
             # 2. Crear el programa
             resultado = self.programa_controller.crear_programa(programa_data)
-            
-            # 3. Mostrar resultado
+
+            # 3. Mostrar resultado y abrir en modo lectura
             if resultado.get('success'):
-                print(f"✅ Programa guardado exitosamente")
+                nuevo_programa_id = resultado.get('data', {}).get('id') or programa_id
+                nuevo_codigo = resultado.get('data', {}).get('codigo') or codigo
+
+                print(f"✅ Programa guardado exitosamente (ID: {nuevo_programa_id})")
+
+                # Mostrar mensaje de éxito
                 self.mostrar_mensaje(
-                    f"Programa '{programa_data.get('codigo')}' creado exitosamente", 
+                    f"Programa '{nuevo_codigo}' creado exitosamente", 
                     "exito"
                 )
-                
-                # Actualizar lista si existe
+
+                # 🔄 NUEVO: Cerrar overlay de creación actual
+                if self.overlay_programa in self.active_overlays:
+                    self._on_overlay_closed(self.overlay_programa)
+
+                # 🔄 NUEVO: Esperar un momento y abrir en modo lectura
+                if nuevo_programa_id:
+                    QTimer.singleShot(500, lambda: self._abrir_programa_modo_lectura(nuevo_programa_id))
+
+                # Actualizar lista en pestaña de inicio
                 self.actualizar_lista_programas()
             else:
                 print(f"❌ Error al guardar: {resultado.get('message')}")
@@ -481,55 +499,65 @@ class MainWindow(QMainWindow):
                     f"Error al guardar programa: {resultado.get('message')}", 
                     "error"
                 )
-                
+
         except Exception as e:
             print(f"❌ Error inesperado: {e}")
             import traceback
             traceback.print_exc()
             self.mostrar_mensaje(f"Error inesperado: {str(e)}", "error")
-        
+
         print("=" * 50)
-    
+
     def _on_programa_actualizado(self, unsxx_data: dict) -> None:
-        """Manejador cuando se actualiza un programa existente"""
+        """Manejador cuando se actualiza un programa existente - AHORA ABRE EN MODO LECTURA"""
         print("=" * 50)
         print("✅ _on_programa_actualizado EJECUTADO en MainWindow!")
-        
+
         if not unsxx_data:
             print("❌ Error: Datos vacíos recibidos")
             self.mostrar_mensaje("No se recibieron datos del formulario", "error")
             return
-        
+
         programa_id = unsxx_data.get('id')
         if not programa_id:
             print("❌ Error: No se recibió ID del programa")
             self.mostrar_mensaje("Error: No se identificó el programa a actualizar", "error")
             return
-        
-        print(f"Actualizando programa ID: {programa_id}, Código: {unsxx_data.get('codigo', 'Sin código')}")
-        
+
+        codigo = unsxx_data.get('codigo', 'Sin código')
+        print(f"Actualizando programa ID: {programa_id}, Código: {codigo}")
+
         try:
             # 1. Convertir datos UNSXX a formato estándar
             converter = UNSXXConverter()
             programa_data = converter.convertir_unsxx_a_programa(unsxx_data)
-            
+
             if not programa_data:
                 print("❌ Error: No se pudieron convertir los datos")
                 self.mostrar_mensaje("Error al procesar datos del programa", "error")
                 return
-            
+
             # 2. Actualizar el programa
             resultado = self.programa_controller.actualizar_programa(programa_id, programa_data)
-            
-            # 3. Mostrar resultado
+
+            # 3. Mostrar resultado y abrir en modo lectura
             if resultado.get('success'):
                 print(f"✅ Programa actualizado exitosamente")
+
+                # Mostrar mensaje de éxito
                 self.mostrar_mensaje(
-                    f"Programa '{programa_data.get('codigo')}' actualizado exitosamente", 
+                    f"Programa '{codigo}' actualizado exitosamente", 
                     "exito"
                 )
-                
-                # Actualizar lista si existe
+
+                # 🔄 NUEVO: Cerrar overlay de edición actual
+                if self.overlay_programa in self.active_overlays:
+                    self._on_overlay_closed(self.overlay_programa)
+
+                # 🔄 NUEVO: Esperar un momento y abrir en modo lectura
+                QTimer.singleShot(500, lambda: self._abrir_programa_modo_lectura(programa_id))
+
+                # Actualizar lista en pestaña de inicio
                 self.actualizar_lista_programas()
             else:
                 print(f"❌ Error al actualizar: {resultado.get('message')}")
@@ -537,13 +565,13 @@ class MainWindow(QMainWindow):
                     f"Error al actualizar programa: {resultado.get('message')}", 
                     "error"
                 )
-                
+
         except Exception as e:
             print(f"❌ Error inesperado: {e}")
             import traceback
             traceback.print_exc()
             self.mostrar_mensaje(f"Error inesperado: {str(e)}", "error")
-        
+
         print("=" * 50)
     
     def _on_programa_eliminado(self, programa_id: int):
@@ -567,6 +595,89 @@ class MainWindow(QMainWindow):
             else:
                 print(f"❌ Error: {resultado['message']}")
                 self.mostrar_mensaje(resultado['message'], tipo="error")
+    
+    def _abrir_programa_modo_lectura(self, programa_id: int):
+        """Abrir un programa específico en modo solo lectura"""
+        print(f"🔵 _abrir_programa_modo_lectura() - ID: {programa_id}")
+
+        try:
+            # 1. Obtener datos del programa desde la base de datos
+            resultado = self.programa_controller.obtener_programa(programa_id)
+
+            if not resultado.get('success'):
+                print(f"❌ Error al obtener programa: {resultado.get('message')}")
+                self.mostrar_mensaje(f"No se pudo cargar el programa: {resultado.get('message')}", "error")
+                return
+
+            programa_data = resultado.get('data')
+            if not programa_data:
+                print("❌ Error: Datos del programa vacíos")
+                self.mostrar_mensaje("No se encontraron datos del programa", "error")
+                return
+
+            # 2. Convertir datos a formato UNSXX si es necesario
+            converter = UNSXXConverter()
+            unsxx_data = converter.convertir_programa_a_unsxx(programa_data)
+            unsxx_data['id'] = programa_id
+
+            codigo = unsxx_data.get('codigo', programa_data.get('codigo', 'Programa'))
+            print(f"✅ Programa obtenido: {codigo} (ID: {programa_id})")
+
+            # 3. Crear NUEVO overlay para modo lectura
+            # Importar aquí para evitar dependencia circular
+            try:
+                from .overlays.programa_overlay import ProgramaOverlay
+            except ImportError as e:
+                print(f"❌ No se pudo importar ProgramaOverlay: {e}")
+                self.mostrar_mensaje("Error al abrir vista de programa", "error")
+                return
+
+            # Crear nuevo overlay (no reusar el de creación/edición)
+            overlay_lectura = ProgramaOverlay(self)
+
+            # Conectar señales (importante para futuras ediciones)
+            overlay_lectura.programa_actualizado.connect(self._on_programa_actualizado)
+            overlay_lectura.programa_eliminado.connect(self._on_programa_eliminado)
+
+            # 4. Configurar overlay en modo lectura
+            try:
+                # Configurar título
+                overlay_lectura.set_titulo(f"🏛️ Programa Académico - {codigo}")
+
+                # Mostrar en modo lectura
+                overlay_lectura.show_form(
+                    solo_lectura=True,  # Esto deshabilita los campos
+                    datos=unsxx_data,
+                    modo="lectura"
+                )
+
+                # Opcional: Aplicar estilos específicos para modo lectura
+                overlay_lectura.setStyleSheet(self.styleSheet())
+
+                # 5. Mostrar el overlay con oscurecimiento
+                if self.show_overlay(overlay_lectura):
+                    print(f"✅ Overlay de lectura abierto para: {codigo}")
+
+                    # Agregar a diccionario de seguimiento
+                    self.programa_overlays[overlay_lectura] = {
+                        'id': programa_id,
+                        'codigo': codigo,
+                        'modo': 'lectura'
+                    }
+                else:
+                    print("❌ No se pudo mostrar el overlay de lectura")
+
+            except Exception as e:
+                print(f"❌ Error configurando overlay de lectura: {e}")
+                import traceback
+                traceback.print_exc()
+                self.mostrar_mensaje(f"Error al mostrar el programa: {str(e)}", "error")
+
+        except Exception as e:
+            print(f"❌ Error en _abrir_programa_modo_lectura: {e}")
+            import traceback
+            traceback.print_exc()
+            self.mostrar_mensaje(f"Error al abrir programa: {str(e)}", "error")
     
     def activar_programa(self, programa_id: int):
         """Activar un programa previamente cancelado"""
@@ -595,6 +706,10 @@ class MainWindow(QMainWindow):
             self._mostrar_programas_en_tabla(resultado['data'], resultado['metadata'])
         else:
             print(f"❌ Error en búsqueda: {resultado['message']}")
+    
+    def mostrar_detalles_programa(self, programa_id: int):
+        """Mostrar programa en modo lectura (ver detalles)"""
+        self._abrir_programa_modo_lectura(programa_id)
     
     def _mostrar_programas_en_tabla(self, programas: list, metadata: dict):
         """Mostrar programas en tabla/listado"""
@@ -669,7 +784,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Error al mostrar overlay de estudiante: {e}")
             self.mostrar_mensaje(f"Error al mostrar formulario: {str(e)}", "error")
-
+    
     def mostrar_editar_estudiante(self, estudiante_id: int):
         """Mostrar overlay para editar estudiante existente"""
         self._init_overlay_estudiante()
@@ -688,7 +803,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Error al mostrar overlay de estudiante: {e}")
             self.mostrar_mensaje(f"Error al mostrar formulario: {str(e)}", "error")
-
+    
     def mostrar_ver_estudiante(self, estudiante_id: int):
         """Mostrar overlay para ver detalles de estudiante"""
         self._init_overlay_estudiante()
@@ -732,7 +847,7 @@ class MainWindow(QMainWindow):
         # Opcional: Abrir en modo visualización después de 500ms
         if estudiante_id:
             QTimer.singleShot(500, lambda: self.mostrar_ver_estudiante(estudiante_id))
-
+    
     def _on_estudiante_actualizado(self, estudiante_data: dict):
         """Manejador cuando se actualiza un estudiante"""
         if not self.overlay_estudiante:
@@ -746,7 +861,7 @@ class MainWindow(QMainWindow):
             f"Estudiante {estudiante_data.get('nombres', 'N/A')} actualizado exitosamente",
             tipo="exito"
         )
-
+    
     def _on_estudiante_eliminado(self, estudiante_id: int):
         """Manejador cuando se elimina un estudiante"""
         if not self.overlay_estudiante:
@@ -760,7 +875,7 @@ class MainWindow(QMainWindow):
             f"Estudiante ID {estudiante_id} eliminado exitosamente",
             tipo="exito"
         )
-
+    
     def actualizar_lista_estudiantes(self):
         """Actualizar la lista de estudiantes después de cambios"""
         print("🔄 Actualizando lista de estudiantes...")
@@ -852,22 +967,22 @@ class MainWindow(QMainWindow):
         """Manejador cuando se actualiza un docente"""
         if not docente_data:
             return
-
+        
         print(f"✅ Docente actualizado: {docente_data.get('nombres', 'N/A')}")
-
+        
         self.actualizar_lista_docentes()
-
+        
         self.mostrar_mensaje(
             f"Docente {docente_data.get('nombres', 'N/A')} actualizado exitosamente",
             tipo="exito"
         )
-
+    
     def _on_docente_eliminado(self, docente_id: int):
         """Manejador cuando se elimina un docente"""
         print(f"✅ Docente eliminado: ID {docente_id}")
-
+        
         self.actualizar_lista_docentes()
-
+        
         self.mostrar_mensaje(
             f"Docente ID {docente_id} eliminado exitosamente",
             tipo="exito"
@@ -987,10 +1102,10 @@ class MainWindow(QMainWindow):
         """Manejador para el cierre de la ventana - REEMPLAZAR"""
         if hasattr(self, 'reload_timer'):
             self.reload_timer.stop()
-
+        
         # Cerrar todos los overlays activos
         self.close_all_overlays()
-
+        
         print("Cerrando aplicación...")
         event.accept()
     

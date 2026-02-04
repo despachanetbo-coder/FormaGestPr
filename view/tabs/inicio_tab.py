@@ -11,7 +11,7 @@ Versión: 2.0.0 (Rediseñada con botones contextuales)
 import logging
 from typing import Optional, Dict, List, Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
@@ -733,23 +733,39 @@ class InicioTab(BaseTab):
             self._mostrar_error(f"Error al editar: {str(e)}")
     
     def _on_refresh(self) -> None:
-        """Manejador: Actualizar datos."""
+        """Manejador: Actualizar datos con manejo robusto de errores."""
         logger.debug("Actualizando datos...")
-        self.current_page = 1
-        self.total_records = 0
-        self.total_pages = 1
-        
-        if self.current_filters:
-            # Recargar con filtros activos
-            self._load_current_page()
-        else:
-            # Recargar sin filtros
-            if self.current_view == "estudiantes":
-                self._load_estudiantes_page(0)
-            elif self.current_view == "docentes":
-                self._load_docentes_page(0)
-            elif self.current_view == "programas":
-                self._load_programas_page(0)
+
+        try:
+            # Verificar que la tabla aún existe
+            if not self.table:
+                logger.error("❌ Tabla no disponible")
+                return
+
+            # Limpiar selección para evitar referencias inválidas
+            self.table.clearSelection()
+
+            # Resetear variables de estado
+            self.current_page = 1
+            self.total_records = 0
+            self.total_pages = 1
+
+            # Recargar según vista actual
+            if self.current_filters:
+                self._load_current_page()
+            else:
+                if self.current_view == "estudiantes":
+                    self._load_estudiantes_page(0)
+                elif self.current_view == "docentes":
+                    self._load_docentes_page(0)
+                elif self.current_view == "programas":
+                    self._load_programas_page(0)
+
+        except Exception as e:
+            logger.error(f"❌ Error en _on_refresh: {e}")
+
+            # Intentar recuperación automática
+            QTimer.singleShot(500, self._safe_refresh)
     
     # =========================================================================
     # SECCIÓN 6: OPERACIONES DE DATOS - ESTUDIANTES
@@ -1260,32 +1276,32 @@ class InicioTab(BaseTab):
         if not estudiante_id:
             self._mostrar_info("Ver Pagos", "Por favor, seleccione un estudiante de la tabla.")
             return
-
+        
         # Opción 1: Usar InscripcionOverlay enfocado en pagos
         main_window = self._get_main_window()
         if main_window:
             try:
                 from view.overlays.inscripcion_overlay import InscripcionOverlay
                 overlay = InscripcionOverlay(main_window)
-
+                
                 overlay.show_form(
                     solo_lectura=False,
                     modo="pagos",
                     estudiante_id=estudiante_id,
                     programa_id=None
                 )
-
+                
                 overlay.inscripcion_creada.connect(lambda: self._on_refresh())
                 overlay.inscripcion_actualizada.connect(lambda: self._on_refresh())
                 overlay.overlay_closed.connect(lambda: overlay.deleteLater())
-
+                
             except ImportError as e:
                 logger.error(f"No se pudo importar InscripcionOverlay: {e}")
                 # Fallback al método original
                 self._ver_pagos_estudiante_fallback(estudiante_id)
         else:
             self._ver_pagos_estudiante_fallback(estudiante_id)
-
+    
     def _ver_pagos_estudiante_fallback(self, estudiante_id: int):
         """Método fallback para ver pagos del estudiante (sin InscripcionOverlay)."""
         try:
@@ -1887,6 +1903,143 @@ class InicioTab(BaseTab):
         
         result = Database.execute_query(query, tuple(params), fetch_one=True)
         return result[0] if result else 0
+    
+    def _verificar_conexion_db(self) -> bool:
+        """Verificar conexión sin asumir estructura interna."""
+        try:
+            from config.database import Database
+            
+            # Método 1: Usar el patrón de Database como está diseñado
+            try:
+                # Obtener conexión usando el método público
+                connection = Database.get_connection()
+                if not connection:
+                    return False
+                
+                # Probar con consulta simple
+                cursor = connection.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
+                
+                # Devolver conexión si existe método
+                if hasattr(Database, 'return_connection'):
+                    Database.return_connection(connection)
+                elif hasattr(connection, 'close'):
+                    connection.close()
+                    
+                return True
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error probando conexión: {e}")
+                return False
+                
+        except ImportError:
+            logger.error("❌ No se pudo importar Database")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error inesperado: {e}")
+            return False
+    
+    def _reconectar_db(self) -> bool:
+        """Reconectar sin tocar atributos privados."""
+        logger.info("🔄 Intentando reconectar...")
+        
+        try:
+            from config.database import Database
+            
+            # 1. Limpiar usando métodos públicos si existen
+            cleanup_attempted = False
+            
+            # Lista de métodos potenciales de limpieza
+            potential_methods = [
+                'close_all_connections',
+                'dispose',
+                'reset_pool',
+                'cleanup',
+                'reconnect',
+                'refresh_connection'
+            ]
+            
+            for method_name in potential_methods:
+                if hasattr(Database, method_name) and callable(getattr(Database, method_name)):
+                    try:
+                        getattr(Database, method_name)()
+                        cleanup_attempted = True
+                        logger.debug(f"✅ Ejecutado {method_name}()")
+                    except Exception as e:
+                        logger.debug(f"⚠️ {method_name}() falló: {e}")
+            
+            # 2. Si no hay métodos de limpieza, forzar error para limpiar caché
+            if not cleanup_attempted:
+                try:
+                    # Intentar operación que fallará para limpiar estado
+                    conn = Database.get_connection()
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT * FROM non_existent_table_to_force_error")
+                        except:
+                            pass  # Error esperado
+                        finally:
+                            if hasattr(Database, 'return_connection'):
+                                Database.return_connection(conn)
+                            elif hasattr(conn, 'close'):
+                                conn.close()
+                except:
+                    pass  # Ignorar errores
+                
+            # 3. Esperar breve momento
+            import time
+            time.sleep(0.2)
+            
+            # 4. Obtener nueva conexión y probar
+            try:
+                new_conn = Database.get_connection()
+                if not new_conn:
+                    return False
+                
+                cursor = new_conn.cursor()
+                cursor.execute("SELECT 1")
+                cursor.close()
+                
+                # Devolver conexión
+                if hasattr(Database, 'return_connection'):
+                    Database.return_connection(new_conn)
+                
+                logger.info("✅ Reconexión exitosa")
+                return True
+                
+            except Exception as e:
+                logger.error(f"❌ Error con nueva conexión: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error crítico en reconexión: {e}")
+            return False
+
+    def _safe_refresh(self) -> None:
+        """Refrescar datos de forma segura con manejo de errores."""
+        try:
+            # Verificar conexión primero
+            if not self._verificar_conexion_db():
+                logger.warning("⚠️ Conexión DB perdida, intentando reconectar...")
+                if not self._reconectar_db():
+                    self._mostrar_error("Error de conexión a la base de datos. Reintente más tarde.")
+                    return
+
+            # Refrescar datos
+            self._on_refresh()
+
+        except Exception as e:
+            logger.error(f"Error en safe_refresh: {e}")
+            # Intentar reconectar y refrescar de nuevo
+            try:
+                self._reconectar_db()
+                QTimer.singleShot(1000, self._on_refresh)  # Reintentar después de 1 segundo
+            except Exception as e2:
+                logger.error(f"Error crítico: {e2}")
+                self._mostrar_error(f"Error crítico: {str(e2)}")
     
     # =========================================================================
     # SECCIÓN 15: MÉTODOS DE COMPATIBILIDAD CON BASETAB
