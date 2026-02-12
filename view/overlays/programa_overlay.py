@@ -1,14 +1,13 @@
 # view/overlays/programa_overlay.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-    QPushButton, QTextEdit, QSpinBox, QDoubleSpinBox, 
-    QComboBox, QDateEdit, QGroupBox, QGridLayout, QFormLayout,
+    QPushButton, QComboBox, QDateEdit, QGroupBox, QGridLayout,
     QScrollArea, QFrame, QSizePolicy, QCheckBox,
     QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, 
     QSplitter, QTabWidget
 )
 from PySide6.QtCore import Qt, QDate, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QDoubleValidator, QIntValidator
 from typing import List, Optional, Dict, Any, Tuple
 import logging
 
@@ -19,7 +18,7 @@ from .base_overlay import BaseOverlay
 logger = logging.getLogger(__name__)
 
 class ProgramaOverlay(BaseOverlay):
-    """Overlay para crear/editar programas académicos con campos específicos de la tabla"""
+    """Overlay para crear/editar/ver programas académicos con campos específicos de la tabla"""
     
     # Señales específicas de ProgramaOverlay
     programa_guardado = Signal(dict)
@@ -62,10 +61,10 @@ class ProgramaOverlay(BaseOverlay):
         ("Gestión Farmacia", "GFM")
     ]
     
-    ROMAN_NUMERALS = [
-        (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
-        (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
-        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+    # Números romanos del 1 al 20
+    NUMEROS_ROMANOS = [
+        "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+        "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"
     ]
     
     def __init__(self, parent=None):
@@ -75,6 +74,8 @@ class ProgramaOverlay(BaseOverlay):
         self.programa_id: Optional[int] = None
         self.codigo_construido = ""
         self.es_posgrado = False
+        self.solo_lectura = False
+        self._cerrando = False
         
         # Variables para control de descripción automática
         self.descripcion_automatica = True
@@ -138,10 +139,6 @@ class ProgramaOverlay(BaseOverlay):
         grupo_calendario = self.crear_grupo_calendario()
         layout_izquierda.addWidget(grupo_calendario)
         
-        # Grupo: Promociones y Descuentos (nuevo campo de la tabla)
-        grupo_promociones = self.crear_grupo_promociones()
-        layout_izquierda.addWidget(grupo_promociones)
-        
         layout_izquierda.addStretch()
         
         scroll_izquierda.setWidget(widget_izquierda)
@@ -196,6 +193,7 @@ class ProgramaOverlay(BaseOverlay):
         self.codigo_generado_label = QLabel("Seleccione nivel y carrera")
         self.codigo_generado_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.codigo_generado_label.setMinimumHeight(40)
+        self.codigo_generado_label.setObjectName("codigoGeneradoLabel")
         codigo_container.addWidget(self.codigo_generado_label)
         
         # Campo oculto para el código
@@ -244,31 +242,24 @@ class ProgramaOverlay(BaseOverlay):
         año_label.setProperty("class", "labelObligatorio")
         año_container.addWidget(año_label)
         
-        self.año_input = QSpinBox()
-        self.año_input.setRange(2024, 2035)
-        self.año_input.setValue(QDate.currentDate().year())
-        self.año_input.valueChanged.connect(self._actualizar_codigo)
+        self.año_input = QLineEdit()
+        self.año_input.setText(str(QDate.currentDate().year()))
+        self.año_input.textChanged.connect(self._actualizar_codigo)
+        validator_año = QIntValidator(2000, 2100, self)
+        self.año_input.setValidator(validator_año)
         año_container.addWidget(self.año_input)
         año_version_layout.addLayout(año_container)
         
-        # Versión
+        # Versión - Cambiado a QComboBox con números romanos
         version_container = QVBoxLayout()
         version_label = QLabel("Versión:")
         version_container.addWidget(version_label)
         
-        version_hbox = QHBoxLayout()
-        self.version_spin = QSpinBox()
-        self.version_spin.setRange(1, 20)
-        self.version_spin.setValue(1)
-        self.version_spin.valueChanged.connect(self._actualizar_version_romana)
-        
-        self.version_label = QLabel("I")
-        self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.version_label.setMinimumWidth(50)
-        
-        version_hbox.addWidget(self.version_spin)
-        version_hbox.addWidget(self.version_label)
-        version_container.addLayout(version_hbox)
+        self.version_combo = QComboBox()
+        self.version_combo.addItems(self.NUMEROS_ROMANOS)
+        self.version_combo.setCurrentIndex(0)
+        self.version_combo.currentIndexChanged.connect(self._actualizar_version_romana)
+        version_container.addWidget(self.version_combo)
         año_version_layout.addLayout(version_container)
         
         layout.addLayout(año_version_layout)
@@ -320,10 +311,10 @@ class ProgramaOverlay(BaseOverlay):
         desc_header.addStretch()
         desc_container.addLayout(desc_header)
         
-        # Usar QTextEdit para descripción larga (campo TEXT en la tabla)
-        self.descripcion_input = QTextEdit()
+        # Descripción como QLineEdit
+        self.descripcion_input = QLineEdit()
         self.descripcion_input.setPlaceholderText("La descripción se genera automáticamente...")
-        self.descripcion_input.setMaximumHeight(100)
+        self.descripcion_input.setMaximumHeight(35)
         desc_container.addWidget(self.descripcion_input)
         layout.addLayout(desc_container)
         
@@ -339,17 +330,19 @@ class ProgramaOverlay(BaseOverlay):
         
         # Fila 1 - Duración (meses) (campo de la tabla)
         grid.addWidget(QLabel("Duración (meses):*"), 0, 0)
-        self.duracion_input = QSpinBox()
-        self.duracion_input.setRange(1, 60)
-        self.duracion_input.setValue(24)
-        self.duracion_input.valueChanged.connect(self._actualizar_fecha_fin)
+        self.duracion_input = QLineEdit()
+        self.duracion_input.setText("24")
+        validator_duracion = QIntValidator(1, 60, self)
+        self.duracion_input.setValidator(validator_duracion)
+        self.duracion_input.textChanged.connect(self._actualizar_fecha_fin)
         grid.addWidget(self.duracion_input, 0, 1)
         
         # Carga Horaria (campo de la tabla)
         grid.addWidget(QLabel("Carga Horaria:*"), 0, 2)
-        self.horas_input = QSpinBox()
-        self.horas_input.setRange(40, 10000)
-        self.horas_input.setValue(1200)
+        self.horas_input = QLineEdit()
+        self.horas_input.setText("1200")
+        validator_horas = QIntValidator(40, 10000, self)
+        self.horas_input.setValidator(validator_horas)
         grid.addWidget(self.horas_input, 0, 3)
         
         # Fila 2 - Estado (campo de la tabla)
@@ -357,43 +350,6 @@ class ProgramaOverlay(BaseOverlay):
         self.estado_input = QComboBox()
         self.estado_input.addItems(["PLANIFICADO", "INSCRIPCIONES", "EN_CURSO", "CONCLUIDO", "CANCELADO"])
         grid.addWidget(self.estado_input, 1, 1)
-        
-        return grupo
-    
-    def crear_grupo_promociones(self):
-        """Crear grupo para promociones y descuentos (nuevos campos de la tabla)"""
-        grupo = QGroupBox("🎁 PROMOCIONES Y DESCUENTOS")
-        
-        grid = QGridLayout(grupo)
-        grid.setContentsMargins(12, 20, 12, 15)
-        grid.setSpacing(12)
-        
-        # Descuento porcentual (campo de la tabla)
-        grid.addWidget(QLabel("Descuento (%):"), 0, 0)
-        self.descuento_input = QDoubleSpinBox()
-        self.descuento_input.setRange(0, 100)
-        self.descuento_input.setValue(0.0)
-        self.descuento_input.setSuffix(" %")
-        self.descuento_input.valueChanged.connect(self._actualizar_costos_con_descuento)
-        grid.addWidget(self.descuento_input, 0, 1)
-        
-        # Descripción de la promoción (campo de la tabla)
-        grid.addWidget(QLabel("Descripción promoción:"), 1, 0)
-        self.promocion_desc_input = QLineEdit()
-        self.promocion_desc_input.setPlaceholderText("Ej: Promoción especial por lanzamiento")
-        grid.addWidget(self.promocion_desc_input, 1, 1)
-        
-        # Fecha válido hasta (campo de la tabla)
-        grid.addWidget(QLabel("Válido hasta:"), 2, 0)
-        self.promocion_valido_hasta_input = QDateEdit()
-        self.promocion_valido_hasta_input.setCalendarPopup(True)
-        self.promocion_valido_hasta_input.setDate(QDate.currentDate().addDays(30))
-        grid.addWidget(self.promocion_valido_hasta_input, 2, 1)
-        
-        # Checkbox para habilitar promoción
-        self.promocion_checkbox = QCheckBox("Habilitar promoción")
-        self.promocion_checkbox.stateChanged.connect(self._habilitar_promocion)
-        grid.addWidget(self.promocion_checkbox, 3, 0, 1, 2)
         
         return grupo
     
@@ -424,53 +380,56 @@ class ProgramaOverlay(BaseOverlay):
         
         # Fila 1 - Cupos (campos de la tabla)
         grid.addWidget(QLabel("Cupos máximos:*"), 0, 0)
-        self.cupos_max_input = QSpinBox()
-        self.cupos_max_input.setRange(1, 500)
-        self.cupos_max_input.setValue(30)
-        self.cupos_max_input.valueChanged.connect(self._actualizar_estadisticas)
+        self.cupos_max_input = QLineEdit()
+        self.cupos_max_input.setText("30")
+        validator_cupos_max = QIntValidator(1, 500, self)
+        self.cupos_max_input.setValidator(validator_cupos_max)
+        self.cupos_max_input.textChanged.connect(self._actualizar_estadisticas)
         grid.addWidget(self.cupos_max_input, 0, 1)
         
         grid.addWidget(QLabel("Cupos inscritos:*"), 0, 2)
-        self.cupos_inscritos_input = QSpinBox()
-        self.cupos_inscritos_input.setRange(0, 500)
-        self.cupos_inscritos_input.setValue(0)
-        self.cupos_inscritos_input.valueChanged.connect(self._actualizar_estadisticas)
+        self.cupos_inscritos_input = QLineEdit()
+        self.cupos_inscritos_input.setText("0")
+        validator_cupos_inscritos = QIntValidator(0, 500, self)
+        self.cupos_inscritos_input.setValidator(validator_cupos_inscritos)
+        self.cupos_inscritos_input.textChanged.connect(self._actualizar_estadisticas)
         grid.addWidget(self.cupos_inscritos_input, 0, 3)
         
         # Fila 2 - Costos principales (campos de la tabla)
         grid.addWidget(QLabel("Costo total:*"), 1, 0)
-        self.costo_total_input = QDoubleSpinBox()
-        self.costo_total_input.setRange(0, 50000)
-        self.costo_total_input.setValue(5000.00)
-        self.costo_total_input.setDecimals(2)
-        self.costo_total_input.setPrefix("$ ")
-        self.costo_total_input.valueChanged.connect(self._calcular_cuotas)
+        self.costo_total_input = QLineEdit()
+        self.costo_total_input.setText("5000.00")
+        validator_costo_total = QDoubleValidator(0.0, 50000.0, 2, self)
+        validator_costo_total.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.costo_total_input.setValidator(validator_costo_total)
+        self.costo_total_input.textChanged.connect(self._calcular_cuotas)
         grid.addWidget(self.costo_total_input, 1, 1)
         
         grid.addWidget(QLabel("Número de cuotas:*"), 1, 2)
-        self.cuotas_input = QSpinBox()
-        self.cuotas_input.setRange(1, 36)
-        self.cuotas_input.setValue(10)
-        self.cuotas_input.valueChanged.connect(self._calcular_cuotas)
+        self.cuotas_input = QLineEdit()
+        self.cuotas_input.setText("10")
+        validator_cuotas = QIntValidator(1, 36, self)
+        self.cuotas_input.setValidator(validator_cuotas)
+        self.cuotas_input.textChanged.connect(self._calcular_cuotas)
         grid.addWidget(self.cuotas_input, 1, 3)
         
         # Fila 3 - Costos adicionales (campos de la tabla)
         grid.addWidget(QLabel("Costo matrícula:*"), 2, 0)
-        self.costo_matricula_input = QDoubleSpinBox()
-        self.costo_matricula_input.setRange(0, 5000)
-        self.costo_matricula_input.setValue(200.00)
-        self.costo_matricula_input.setDecimals(2)
-        self.costo_matricula_input.setPrefix("$ ")
-        self.costo_matricula_input.valueChanged.connect(self._actualizar_estadisticas)
+        self.costo_matricula_input = QLineEdit()
+        self.costo_matricula_input.setText("200.00")
+        validator_matricula = QDoubleValidator(0.0, 5000.0, 2, self)
+        validator_matricula.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.costo_matricula_input.setValidator(validator_matricula)
+        self.costo_matricula_input.textChanged.connect(self._actualizar_estadisticas)
         grid.addWidget(self.costo_matricula_input, 2, 1)
         
         grid.addWidget(QLabel("Costo inscripción:*"), 2, 2)
-        self.costo_inscripcion_input = QDoubleSpinBox()
-        self.costo_inscripcion_input.setRange(0, 500)
-        self.costo_inscripcion_input.setValue(50.00)
-        self.costo_inscripcion_input.setDecimals(2)
-        self.costo_inscripcion_input.setPrefix("$ ")
-        self.costo_inscripcion_input.valueChanged.connect(self._actualizar_estadisticas)
+        self.costo_inscripcion_input = QLineEdit()
+        self.costo_inscripcion_input.setText("50.00")
+        validator_inscripcion = QDoubleValidator(0.0, 500.0, 2, self)
+        validator_inscripcion.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.costo_inscripcion_input.setValidator(validator_inscripcion)
+        self.costo_inscripcion_input.textChanged.connect(self._actualizar_estadisticas)
         grid.addWidget(self.costo_inscripcion_input, 2, 3)
         
         # Fila 4: Costo por cuota (calculado, campo de la tabla)
@@ -547,11 +506,6 @@ class ProgramaOverlay(BaseOverlay):
         self.lbl_saldo_pendiente.setProperty("class", "labelEstadistica")
         grid.addWidget(self.lbl_saldo_pendiente, 2, 0, 1, 2)
         
-        # Fila 4 - Costo con descuento
-        self.lbl_costo_con_descuento = QLabel("Costo con descuento: $5,000.00")
-        self.lbl_costo_con_descuento.setProperty("class", "labelEstadistica")
-        grid.addWidget(self.lbl_costo_con_descuento, 3, 0, 1, 2)
-        
         return grupo
     
     def crear_tab_estudiantes(self):
@@ -625,29 +579,26 @@ class ProgramaOverlay(BaseOverlay):
     def setup_conexiones_especificas(self):
         """Configurar conexiones específicas"""
         # Conectar señales para estadísticas
-        self.cupos_max_input.valueChanged.connect(self._actualizar_estadisticas)
-        self.cupos_inscritos_input.valueChanged.connect(self._actualizar_estadisticas)
-        self.costo_total_input.valueChanged.connect(self._actualizar_estadisticas)
-        self.costo_matricula_input.valueChanged.connect(self._actualizar_estadisticas)
-        self.costo_inscripcion_input.valueChanged.connect(self._actualizar_estadisticas)
+        self.cupos_max_input.textChanged.connect(self._actualizar_estadisticas)
+        self.cupos_inscritos_input.textChanged.connect(self._actualizar_estadisticas)
+        self.costo_total_input.textChanged.connect(self._actualizar_estadisticas)
+        self.costo_matricula_input.textChanged.connect(self._actualizar_estadisticas)
+        self.costo_inscripcion_input.textChanged.connect(self._actualizar_estadisticas)
         
         # Conectar señales para actualización de descripción
         self.nivel_combo.currentTextChanged.connect(self._actualizar_descripcion)
         self.nombre_input.textChanged.connect(self._actualizar_descripcion)
-        self.version_spin.valueChanged.connect(self._actualizar_descripcion)
+        self.version_combo.currentTextChanged.connect(self._actualizar_descripcion)
         self.carrera_combo.currentTextChanged.connect(self._actualizar_descripcion)
         
         # Conectar para detección de edición manual
         self.descripcion_input.textChanged.connect(self._on_descripcion_editada)
         
-        # Conectar descuentos
-        self.descuento_input.valueChanged.connect(self._actualizar_costos_con_descuento)
-        
         # Conectar botón guardar al método on_guardar
         if hasattr(self, 'btn_guardar'):
             self.btn_guardar.clicked.connect(self.on_guardar)
             
-        # Conectar botón cancelar
+        # Conectar botón cancelar/cerrar al método close_overlay
         if hasattr(self, 'btn_cancelar'):
             self.btn_cancelar.clicked.connect(self.close_overlay)
     
@@ -664,9 +615,6 @@ class ProgramaOverlay(BaseOverlay):
         self.primer_cambio = True
         self.descripcion_automatica = True
         self._actualizar_descripcion(forzar_actualizacion=True)
-        
-        # Inicializar promoción deshabilitada
-        self._habilitar_promocion()
     
     def apply_specific_styles(self):
         """Aplicar estilos específicos para programa overlay"""
@@ -722,16 +670,6 @@ class ProgramaOverlay(BaseOverlay):
         
         QGroupBox[title="⏳ ESTRUCTURA ACADÉMICA"]::title {
             background-color: #d35400;
-        }
-        
-        /* 🎁 PROMOCIONES Y DESCUENTOS - Rosa vibrante */
-        QGroupBox[title="🎁 PROMOCIONES Y DESCUENTOS"] {
-            border-color: #e91e63;
-            background-color: #fce4ec;
-        }
-        
-        QGroupBox[title="🎁 PROMOCIONES Y DESCUENTOS"]::title {
-            background-color: #c2185b;
         }
         
         /* 👨‍🏫 DOCENTE COORDINADOR - Púrpura vibrante */
@@ -795,6 +733,14 @@ class ProgramaOverlay(BaseOverlay):
             padding: 10px;
             min-height: 40px;
         }
+        
+        /* ===== ESTILOS PARA MODO LECTURA ===== */
+        QLabel#codigoGeneradoLabel[readonly="true"] {
+            background-color: #f5f5f5;
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius: 4px;
+        }
         """
         
         current_style = self.styleSheet()
@@ -808,22 +754,16 @@ class ProgramaOverlay(BaseOverlay):
         self._actualizar_codigo()
         self._actualizar_descripcion()
     
-    def _int_a_romano(self, num):
-        """Convertir número entero a número romano"""
-        result = ""
-        for value, numeral in self.ROMAN_NUMERALS:
-            while num >= value:
-                result += numeral
-                num -= value
-        return result
-    
     def _actualizar_version_romana(self):
-        """Actualizar etiqueta de versión romana"""
-        version_num = self.version_spin.value()
-        version_romana = self._int_a_romano(version_num)
-        self.version_label.setText(version_romana)
-        self._actualizar_codigo()
-        self._actualizar_descripcion()
+        """Actualizar etiqueta de versión romana - ahora usa QComboBox"""
+        try:
+            version_romana = self.version_combo.currentText()
+            self._actualizar_codigo()
+            self._actualizar_descripcion()
+            return version_romana
+        except Exception as e:
+            logger.error(f"Error actualizando versión romana: {e}")
+            return "I"
     
     def _actualizar_codigo(self):
         """Actualizar código UNSXX generado"""
@@ -836,8 +776,16 @@ class ProgramaOverlay(BaseOverlay):
             
             nivel_abrev = self.NIVELES_ACADEMICOS.get(self.nivel_combo.currentText(), "XXX")
             carrera_abrev = self.carrera_combo.currentData() or "GEN"
-            año = str(self.año_input.value())
-            version_romana = self.version_label.text()
+            
+            # Obtener año
+            año_text = self.año_input.text().strip()
+            if not año_text:
+                año = str(QDate.currentDate().year())
+                self.año_input.setText(año)
+            else:
+                año = año_text
+            
+            version_romana = self.version_combo.currentText()
             
             self.codigo_construido = f"{nivel_abrev}-{carrera_abrev}-{año}-{version_romana}"
             
@@ -855,11 +803,7 @@ class ProgramaOverlay(BaseOverlay):
             self.codigo_hidden.clear()
     
     def _actualizar_descripcion(self, forzar_actualizacion=False):
-        """Actualizar automáticamente la descripción del programa
-        
-        Args:
-            forzar_actualizacion: Si es True, actualiza incluso si fue editada manualmente
-        """
+        """Actualizar automáticamente la descripción del programa"""
         try:
             # Si la descripción fue editada manualmente y no forzamos actualización, no hacer nada
             if not self.descripcion_automatica and not forzar_actualizacion and not self.primer_cambio:
@@ -869,16 +813,16 @@ class ProgramaOverlay(BaseOverlay):
             nivel = self.nivel_combo.currentText()
             carrera = self.carrera_combo.currentText()
             nombre = self.nombre_input.text().strip()
-            version_romana = self.version_label.text()
+            version_romana = self.version_combo.currentText()
             
             # Si no hay nivel seleccionado
             if not nivel:
                 if self.primer_cambio:
-                    self.descripcion_input.setPlainText("Seleccione un nivel académico")
+                    self.descripcion_input.setText("Seleccione un nivel académico")
                 return
             
             # Obtener la descripción actual para comparar
-            descripcion_actual = self.descripcion_input.toPlainText()
+            descripcion_actual = self.descripcion_input.text()
             
             # Construir nueva descripción
             nueva_descripcion = self._generar_descripcion_automatica(nivel, carrera, nombre, version_romana)
@@ -886,15 +830,14 @@ class ProgramaOverlay(BaseOverlay):
             # Solo actualizar si es diferente de la actual
             if nueva_descripcion != descripcion_actual:
                 # Guardar posición del cursor si hay foco
-                cursor = self.descripcion_input.textCursor()
-                cursor_pos = cursor.position() if self.descripcion_input.hasFocus() else 0
+                cursor = self.descripcion_input.cursorPosition()
                 
-                self.descripcion_input.setPlainText(nueva_descripcion)
+                self.descripcion_input.setText(nueva_descripcion)
                 
                 # Restaurar posición del cursor si estaba editando
-                if cursor_pos > 0:
-                    cursor.setPosition(min(cursor_pos, len(nueva_descripcion)))
-                    self.descripcion_input.setTextCursor(cursor)
+                if cursor > 0:
+                    new_pos = min(cursor, len(nueva_descripcion))
+                    self.descripcion_input.setCursorPosition(new_pos)
             
             # Marcar que ya hubo un cambio
             self.primer_cambio = False
@@ -913,7 +856,6 @@ class ProgramaOverlay(BaseOverlay):
                 return f"{nivel}: "
         
         # Caso 2: Con nombre completo
-        # Verificar si el nivel ya está en el nombre
         nivel_lower = nivel.lower()
         nombre_lower = nombre.lower()
         
@@ -952,25 +894,23 @@ class ProgramaOverlay(BaseOverlay):
     
     def _mapear_estado_a_db(self, estado_form):
         """Mapear el estado del formulario a valores válidos de la base de datos"""
-        # Mapeo de estados del formulario a valores válidos del dominio d_estado_programa
         mapeo_estados = {
-            # Estados actuales del ComboBox → Valores del dominio
             "PLANIFICADO": "PLANIFICADO",
-            "INSCRIPCIONES": "INSCRIPCIONES",        # ¡Agrega esta línea!
-            "PRE INSCRIPCIÓN": "INSCRIPCIONES",      # Mapear a INSCRIPCIONES
-            "INSCRIPCIONES ABIERTAS": "INSCRIPCIONES", # Mapear a INSCRIPCIONES
+            "INSCRIPCIONES": "INSCRIPCIONES",
+            "PRE INSCRIPCIÓN": "INSCRIPCIONES",
+            "INSCRIPCIONES ABIERTAS": "INSCRIPCIONES",
             "EN CURSO": "EN_CURSO",
-            "EN_CURSO": "EN_CURSO",                  # Para cuando uses EN_CURSO directamente
+            "EN_CURSO": "EN_CURSO",
             "CANCELADO": "CANCELADO",
             "CONCLUIDO": "CONCLUIDO",
-            "SUSPENDIDO": "CANCELADO"                # Mapear SUSPENDIDO a CANCELADO
+            "SUSPENDIDO": "CANCELADO"
         }
         
         # Buscar coincidencia exacta
         if estado_form in mapeo_estados:
             return mapeo_estados[estado_form]
         
-        # Buscar coincidencia parcial (sin espacios, mayúsculas, etc.)
+        # Buscar coincidencia parcial
         estado_simplificado = estado_form.upper().replace(" ", "").replace("_", "")
         for key, value in mapeo_estados.items():
             key_simplificado = key.upper().replace(" ", "").replace("_", "")
@@ -983,16 +923,38 @@ class ProgramaOverlay(BaseOverlay):
     
     def _actualizar_fecha_fin(self):
         """Actualizar fecha fin basada en duración"""
-        fecha_inicio = self.fecha_inicio_input.date()
-        meses_duracion = self.duracion_input.value()
-        fecha_fin = fecha_inicio.addMonths(meses_duracion)
-        self.fecha_fin_input.setDate(fecha_fin)
+        try:
+            fecha_inicio = self.fecha_inicio_input.date()
+            duracion_text = self.duracion_input.text().strip()
+            if not duracion_text:
+                meses_duracion = 24
+                self.duracion_input.setText("24")
+            else:
+                meses_duracion = int(duracion_text)
+                
+            fecha_fin = fecha_inicio.addMonths(meses_duracion)
+            self.fecha_fin_input.setDate(fecha_fin)
+        except ValueError:
+            pass
     
     def _calcular_cuotas(self):
         """Calcular costo por cuota"""
         try:
-            costo_total = self.costo_total_input.value()
-            numero_cuotas = self.cuotas_input.value()
+            # Obtener costo total
+            costo_total_text = self.costo_total_input.text().strip()
+            if not costo_total_text:
+                costo_total = 5000.00
+                self.costo_total_input.setText("5000.00")
+            else:
+                costo_total = float(costo_total_text)
+            
+            # Obtener número de cuotas
+            cuotas_text = self.cuotas_input.text().strip()
+            if not cuotas_text:
+                numero_cuotas = 10
+                self.cuotas_input.setText("10")
+            else:
+                numero_cuotas = int(cuotas_text)
             
             if numero_cuotas > 0:
                 costo_cuota = costo_total / numero_cuotas
@@ -1000,52 +962,31 @@ class ProgramaOverlay(BaseOverlay):
         except:
             self.costo_cuota_label.setText("$0.00")
     
-    def _actualizar_costos_con_descuento(self):
-        """Actualizar costos considerando el descuento"""
-        try:
-            costo_total = self.costo_total_input.value()
-            descuento = self.descuento_input.value()
-            
-            if descuento > 0:
-                costo_con_descuento = costo_total * (1 - descuento/100)
-                self.lbl_costo_con_descuento.setText(f"Costo con descuento: ${costo_con_descuento:,.2f}")
-                self._calcular_cuotas()
-        except Exception as e:
-            logger.error(f"Error actualizando costos con descuento: {e}")
-    
-    def _habilitar_promocion(self):
-        """Habilitar o deshabilitar controles de promoción"""
-        habilitado = self.promocion_checkbox.isChecked()
-        self.descuento_input.setEnabled(habilitado)
-        self.promocion_desc_input.setEnabled(habilitado)
-        self.promocion_valido_hasta_input.setEnabled(habilitado)
-        
-        if not habilitado:
-            self.descuento_input.setValue(0.0)
-            self.promocion_desc_input.clear()
-            self.promocion_valido_hasta_input.setDate(QDate.currentDate().addDays(30))
-    
     def _actualizar_estadisticas(self):
         """Actualizar estadísticas del programa"""
         try:
-            cupos_max = self.cupos_max_input.value()
-            cupos_inscritos = self.cupos_inscritos_input.value()
-            costo_total = self.costo_total_input.value()
-            costo_matricula = self.costo_matricula_input.value()
-            costo_inscripcion = self.costo_inscripcion_input.value()
-            descuento = self.descuento_input.value()
+            # Obtener valores de los campos
+            cupos_max_text = self.cupos_max_input.text().strip()
+            cupos_inscritos_text = self.cupos_inscritos_input.text().strip()
+            costo_total_text = self.costo_total_input.text().strip()
+            costo_matricula_text = self.costo_matricula_input.text().strip()
+            costo_inscripcion_text = self.costo_inscripcion_input.text().strip()
+            
+            # Convertir valores
+            cupos_max = int(cupos_max_text) if cupos_max_text else 30
+            cupos_inscritos = int(cupos_inscritos_text) if cupos_inscritos_text else 0
+            costo_total = float(costo_total_text) if costo_total_text else 5000.00
+            costo_matricula = float(costo_matricula_text) if costo_matricula_text else 200.00
+            costo_inscripcion = float(costo_inscripcion_text) if costo_inscripcion_text else 50.00
             
             # Calcular cupos disponibles
             cupos_disponibles = max(0, cupos_max - cupos_inscritos)
             porcentaje_ocupacion = (cupos_inscritos / cupos_max * 100) if cupos_max > 0 else 0
             
-            # Calcular costos con descuento
-            costo_total_con_descuento = costo_total * (1 - descuento/100)
-            
             # Calcular ingresos estimados y reales
-            ingresos_estimados = cupos_max * costo_total_con_descuento
+            ingresos_estimados = cupos_max * costo_total
             ingresos_reales = cupos_inscritos * (costo_matricula + costo_inscripcion)
-            saldo_pendiente = (cupos_inscritos * costo_total_con_descuento) - ingresos_reales
+            saldo_pendiente = (cupos_inscritos * costo_total) - ingresos_reales
             
             # Actualizar labels
             self.lbl_cupos_disponibles.setText(f"Cupos disponibles: {cupos_disponibles}")
@@ -1053,7 +994,6 @@ class ProgramaOverlay(BaseOverlay):
             self.lbl_ingresos_estimados.setText(f"Ingresos estimados: ${ingresos_estimados:,.2f}")
             self.lbl_ingresos_reales.setText(f"Ingresos reales: ${ingresos_reales:,.2f}")
             self.lbl_saldo_pendiente.setText(f"Saldo pendiente: ${saldo_pendiente:,.2f}")
-            self.lbl_costo_con_descuento.setText(f"Costo con descuento: ${costo_total_con_descuento:,.2f}")
             
         except Exception as e:
             logger.error(f"Error actualizando estadísticas: {e}")
@@ -1103,6 +1043,107 @@ class ProgramaOverlay(BaseOverlay):
             logger.error(f"Error cargando docentes: {e}")
             self.docente_coordinador_combo.addItem("-- Error cargando docentes --", None)
     
+    def _seleccionar_docente(self, docente_id):
+        """Seleccionar docente en el comboBox"""
+        for i in range(self.docente_coordinador_combo.count()):
+            if self.docente_coordinador_combo.itemData(i) == docente_id:
+                self.docente_coordinador_combo.setCurrentIndex(i)
+                break
+    
+    # ===== MÉTODOS PARA BLOQUEO DE CAMPOS EN MODO LECTURA =====
+    
+    def _bloquear_todos_los_campos(self, bloqueado=True):
+        """Bloquear o desbloquear todos los campos del formulario"""
+        
+        # Lista de widgets editables
+        widgets_editables = [
+            self.nivel_combo,
+            self.carrera_combo,
+            self.año_input,
+            self.version_combo,
+            self.nombre_input,
+            self.nombre_checkbox,
+            self.btn_modo_descripcion,
+            self.descripcion_input,
+            self.duracion_input,
+            self.horas_input,
+            self.estado_input,
+            self.docente_coordinador_combo,
+            self.cupos_max_input,
+            self.cupos_inscritos_input,
+            self.costo_total_input,
+            self.cuotas_input,
+            self.costo_matricula_input,
+            self.costo_inscripcion_input,
+            self.fecha_inicio_input,
+            self.fecha_fin_input,
+        ]
+        
+        # Agregar btn_guardar si existe
+        if hasattr(self, 'btn_guardar') and self.btn_guardar is not None:
+            widgets_editables.append(self.btn_guardar)
+        
+        # Aplicar bloqueo a widgets editables
+        for widget in widgets_editables:
+            if widget is not None:
+                widget.setEnabled(not bloqueado)
+        
+        # ===== MANEJO SEGURO DE BOTONES EN PESTAÑAS =====
+        botones_tabs = []
+        
+        # Buscar el QTabWidget en la UI
+        tab_widget = self.findChild(QTabWidget)
+        if tab_widget is not None:
+            # Pestaña de estudiantes (índice 0)
+            if tab_widget.count() > 0:
+                tab_estudiantes = tab_widget.widget(0)
+                if tab_estudiantes is not None:
+                    botones = tab_estudiantes.findChildren(QPushButton)
+                    botones_tabs.extend(botones)
+            
+            # Pestaña de pagos (índice 1)
+            if tab_widget.count() > 1:
+                tab_pagos = tab_widget.widget(1)
+                if tab_pagos is not None:
+                    botones = tab_pagos.findChildren(QPushButton)
+                    botones_tabs.extend(botones)
+        
+        # También buscar botones directamente en el contenido (por si acaso)
+        if hasattr(self, 'tabla_estudiantes'):
+            tabla_container = self.tabla_estudiantes.parent()
+            if tabla_container is not None:
+                botones_adicionales = tabla_container.findChildren(QPushButton)
+                for boton in botones_adicionales:
+                    if boton not in botones_tabs:
+                        botones_tabs.append(boton)
+        
+        # Aplicar bloqueo a botones de tabs
+        for boton in botones_tabs:
+            if boton is not None:
+                boton.setEnabled(not bloqueado)
+        
+        # El botón cancelar/cerrar siempre debe estar habilitado
+        if hasattr(self, 'btn_cancelar') and self.btn_cancelar is not None:
+            self.btn_cancelar.setEnabled(True)
+        
+        # Configurar estilo para modo lectura
+        if bloqueado:
+            self.codigo_generado_label.setProperty("readonly", "true")
+            self.codigo_generado_label.setStyleSheet("""
+                QLabel#codigoGeneradoLabel[readonly="true"] {
+                    background-color: #f5f5f5;
+                    border: 1px solid #ccc;
+                    padding: 8px;
+                    border-radius: 4px;
+                }
+            """)
+            
+            # También deshabilitar el checkbox de nombre personalizado
+            self.nombre_checkbox.setEnabled(False)
+        else:
+            self.codigo_generado_label.setProperty("readonly", "false")
+            self.codigo_generado_label.setStyleSheet("")
+    
     # ===== IMPLEMENTACIÓN DE MÉTODOS BASE =====
     
     def validar_formulario(self):
@@ -1112,8 +1153,9 @@ class ProgramaOverlay(BaseOverlay):
         # Validar código
         if not self.codigo_construido or 'ERROR' in self.codigo_construido:
             errores.append("El código UNSXX no es válido")
-        elif not self.validar_codigo_unico(self.codigo_construido):
-            errores.append(f"El código {self.codigo_construido} ya está registrado en el sistema")
+        elif self.validar_codigo_unico(self.codigo_construido):
+            if self.modo == "nuevo":
+                errores.append(f"El código {self.codigo_construido} ya está registrado en el sistema")
             
         # Validar nombre
         nombre = self.nombre_input.text().strip()
@@ -1121,24 +1163,65 @@ class ProgramaOverlay(BaseOverlay):
             errores.append("Debe completar el nombre oficial del programa")
             
         # Validar duración
-        if self.duracion_input.value() <= 0:
-            errores.append("La duración en meses debe ser mayor a 0")
+        duracion_text = self.duracion_input.text().strip()
+        if not duracion_text:
+            errores.append("Debe completar la duración en meses")
+        else:
+            try:
+                duracion = int(duracion_text)
+                if duracion <= 0:
+                    errores.append("La duración en meses debe ser mayor a 0")
+            except ValueError:
+                errores.append("La duración debe ser un número válido")
             
         # Validar horas
-        if self.horas_input.value() <= 0:
-            errores.append("Las horas totales deben ser mayores a 0")
+        horas_text = self.horas_input.text().strip()
+        if not horas_text:
+            errores.append("Debe completar las horas totales")
+        else:
+            try:
+                horas = int(horas_text)
+                if horas <= 0:
+                    errores.append("Las horas totales deben ser mayores a 0")
+            except ValueError:
+                errores.append("Las horas totales deben ser un número válido")
             
         # Validar costo
-        if self.costo_total_input.value() <= 0:
-            errores.append("El costo total debe ser mayor a 0")
+        costo_total_text = self.costo_total_input.text().strip()
+        if not costo_total_text:
+            errores.append("Debe completar el costo total")
+        else:
+            try:
+                costo_total = float(costo_total_text)
+                if costo_total <= 0:
+                    errores.append("El costo total debe ser mayor a 0")
+            except ValueError:
+                errores.append("El costo total debe ser un número válido")
             
         # Validar cupos máximos vs inscritos
-        if self.cupos_inscritos_input.value() > self.cupos_max_input.value():
-            errores.append("Los cupos inscritos no pueden exceder los cupos máximos")
+        cupos_max_text = self.cupos_max_input.text().strip()
+        cupos_inscritos_text = self.cupos_inscritos_input.text().strip()
+        
+        if cupos_max_text and cupos_inscritos_text:
+            try:
+                cupos_max = int(cupos_max_text)
+                cupos_inscritos = int(cupos_inscritos_text)
+                if cupos_inscritos > cupos_max:
+                    errores.append("Los cupos inscritos no pueden exceder los cupos máximos")
+            except ValueError:
+                errores.append("Los cupos deben ser números válidos")
             
         # Validar número de cuotas
-        if self.cuotas_input.value() <= 0:
-            errores.append("El número de cuotas debe ser mayor a 0")
+        cuotas_text = self.cuotas_input.text().strip()
+        if not cuotas_text:
+            errores.append("Debe completar el número de cuotas")
+        else:
+            try:
+                cuotas = int(cuotas_text)
+                if cuotas <= 0:
+                    errores.append("El número de cuotas debe ser mayor a 0")
+            except ValueError:
+                errores.append("El número de cuotas debe ser un número válido")
             
         return len(errores) == 0, errores
     
@@ -1154,25 +1237,29 @@ class ProgramaOverlay(BaseOverlay):
             # Si estamos editando, excluir el ID actual
             excluir_id = self.programa_id if self.modo == "editar" and self.programa_id else None
             
-            # Llamar al método corregido (ver cambios en modelo)
-            return not ProgramaModel.verificar_codigo_existente(codigo, excluir_id)
+            # Llamar al método corregido
+            return ProgramaModel.verificar_codigo_existente(codigo, excluir_id)
         except Exception as e:
             logger.error(f"Error validando código único: {e}")
-            return True  # Permitir continuar si hay error
+            return False  # En caso de error, asumimos que no existe
     
     def obtener_datos(self):
         """Obtener todos los datos del formulario para la función PostgreSQL"""
         logger.debug("DEBUG - ProgramaOverlay.obtener_datos()")
         
-        costo_total = float(self.costo_total_input.value())
-        numero_cuotas = self.cuotas_input.value()
-        descuento = float(self.descuento_input.value())
+        # Obtener valores de los campos de texto
+        costo_total_text = self.costo_total_input.text().strip()
+        numero_cuotas_text = self.cuotas_input.text().strip()
         
+        # Convertir valores con valores por defecto si están vacíos
+        costo_total = float(costo_total_text) if costo_total_text else 5000.00
+        numero_cuotas = int(numero_cuotas_text) if numero_cuotas_text else 10
+            
         # Calcular costo mensualidad (costo por cuota)
         if numero_cuotas > 0:
-            costo_mensualidad = costo_total / numero_cuotas
+            costo_mensualidad = round(costo_total / numero_cuotas, 2)
         else:
-            costo_mensualidad = 0
+            costo_mensualidad = 0.0
             
         docente_coordinador_id = None
         current_data = self.docente_coordinador_combo.currentData()
@@ -1182,7 +1269,7 @@ class ProgramaOverlay(BaseOverlay):
         nombre_oficial = self.nombre_input.text().strip() if self.nombre_checkbox.isChecked() else ""
         
         # IMPORTANTE: Obtener la descripción actual
-        descripcion = self.descripcion_input.toPlainText().strip()
+        descripcion = self.descripcion_input.text().strip()
         
         # Preparar fechas
         fecha_inicio = self.fecha_inicio_input.date()
@@ -1192,38 +1279,35 @@ class ProgramaOverlay(BaseOverlay):
         fecha_inicio_str = fecha_inicio.toString("yyyy-MM-dd") if fecha_inicio.isValid() else None
         fecha_fin_str = fecha_fin.toString("yyyy-MM-dd") if fecha_fin.isValid() else None
         
-        # Datos de promoción
-        promocion_valido_hasta = None
-        if self.promocion_checkbox.isChecked():
-            promocion_valido_hasta = self.promocion_valido_hasta_input.date()
-            promocion_valido_hasta_str = promocion_valido_hasta.toString("yyyy-MM-dd") if promocion_valido_hasta.isValid() else None
-        else:
-            promocion_valido_hasta_str = None
-        
-            # Obtener estado del ComboBox y mapearlo a valor válido de BD
+        # Obtener estado del ComboBox y mapearlo a valor válido de BD
         estado_form = self.estado_input.currentText()
         estado_db = self._mapear_estado_a_db(estado_form)
-            
+        
+        # Convertir otros valores numéricos
+        duracion_text = self.duracion_input.text().strip()
+        horas_text = self.horas_input.text().strip()
+        cupos_max_text = self.cupos_max_input.text().strip()
+        cupos_inscritos_text = self.cupos_inscritos_input.text().strip()
+        costo_matricula_text = self.costo_matricula_input.text().strip()
+        costo_inscripcion_text = self.costo_inscripcion_input.text().strip()
+        
         datos = {
             "codigo": self.codigo_construido,
             "nombre": nombre_oficial,
             "descripcion": descripcion,
-            "duracion_meses": self.duracion_input.value(),
-            "horas_totales": self.horas_input.value(),
-            "costo_total": costo_total,
-            "costo_matricula": float(self.costo_matricula_input.value()),
-            "costo_inscripcion": float(self.costo_inscripcion_input.value()),
-            "costo_mensualidad": round(costo_mensualidad, 2),
-            "numero_cuotas": numero_cuotas,
-            "cupos_maximos": self.cupos_max_input.value(),
-            "cupos_inscritos": self.cupos_inscritos_input.value(),
+            "duracion_meses": int(duracion_text),
+            "horas_totales": int(horas_text),
+            "costo_total": float(costo_total),
+            "costo_matricula": float(costo_matricula_text),
+            "costo_inscripcion": float(costo_inscripcion_text) if costo_inscripcion_text else 50.00,
+            "costo_mensualidad": float(round(costo_mensualidad, 2)),
+            "numero_cuotas": int(numero_cuotas),
+            "cupos_maximos": int(cupos_max_text),
+            "cupos_inscritos": int(cupos_inscritos_text) if cupos_inscritos_text else 0,
             "estado": estado_db,
             "fecha_inicio": fecha_inicio_str,
             "fecha_fin": fecha_fin_str,
-            "docente_coordinador_id": docente_coordinador_id,
-            "promocion_descuento": descuento,
-            "promocion_descripcion": self.promocion_desc_input.text().strip(),
-            "promocion_valido_hasta": promocion_valido_hasta_str
+            "docente_coordinador_id": docente_coordinador_id
         }
         
         logger.debug(f"DEBUG - ProgramaOverlay.obtener_datos() datos preparados: {datos}")
@@ -1235,8 +1319,8 @@ class ProgramaOverlay(BaseOverlay):
         self.programa_id = None
         self.nivel_combo.setCurrentIndex(0)
         self.carrera_combo.setCurrentIndex(0)
-        self.año_input.setValue(QDate.currentDate().year())
-        self.version_spin.setValue(1)
+        self.año_input.setText(str(QDate.currentDate().year()))
+        self.version_combo.setCurrentIndex(0)
         self._actualizar_codigo()
         
         self.nombre_input.clear()
@@ -1249,23 +1333,16 @@ class ProgramaOverlay(BaseOverlay):
         self.btn_modo_descripcion.setText("🔄 Auto")
         self._actualizar_descripcion(forzar_actualizacion=True)
         
-        self.duracion_input.setValue(24)
-        self.horas_input.setValue(1200)
+        self.duracion_input.setText("24")
+        self.horas_input.setText("1200")
         self.estado_input.setCurrentText("PLANIFICADO")
         
-        # Limpiar promociones
-        self.promocion_checkbox.setChecked(False)
-        self.descuento_input.setValue(0.0)
-        self.promocion_desc_input.clear()
-        self.promocion_valido_hasta_input.setDate(QDate.currentDate().addDays(30))
-        self._habilitar_promocion()
-        
-        self.cupos_max_input.setValue(30)
-        self.cupos_inscritos_input.setValue(0)
-        self.costo_total_input.setValue(5000.00)
-        self.costo_matricula_input.setValue(200.00)
-        self.costo_inscripcion_input.setValue(50.00)
-        self.cuotas_input.setValue(10)
+        self.cupos_max_input.setText("30")
+        self.cupos_inscritos_input.setText("0")
+        self.costo_total_input.setText("5000.00")
+        self.costo_matricula_input.setText("200.00")
+        self.costo_inscripcion_input.setText("50.00")
+        self.cuotas_input.setText("10")
         
         self.docente_coordinador_combo.setCurrentIndex(0)
         
@@ -1318,7 +1395,13 @@ class ProgramaOverlay(BaseOverlay):
             if len(codigo_parts) >= 4:
                 try:
                     año = int(codigo_parts[2]) if len(codigo_parts[2]) == 4 else int("20" + codigo_parts[2])
-                    self.año_input.setValue(año)
+                    self.año_input.setText(str(año))
+                    
+                    # Establecer versión romana
+                    version_romana = codigo_parts[3]
+                    index = self.version_combo.findText(version_romana)
+                    if index >= 0:
+                        self.version_combo.setCurrentIndex(index)
                 except:
                     pass
         
@@ -1326,25 +1409,29 @@ class ProgramaOverlay(BaseOverlay):
             self.nombre_input.setText(datos['nombre'])
             self.nombre_checkbox.setChecked(bool(datos['nombre']))
         
-        # Cargar datos numéricos
+        # Cargar datos numéricos como texto
         campos_numericos = [
             ('duracion_meses', self.duracion_input),
             ('horas_totales', self.horas_input),
             ('cupos_maximos', self.cupos_max_input),
             ('cupos_inscritos', self.cupos_inscritos_input),
-            ('costo_total', self.costo_total_input),
-            ('costo_matricula', self.costo_matricula_input),
-            ('costo_inscripcion', self.costo_inscripcion_input),
             ('numero_cuotas', self.cuotas_input),
-            ('promocion_descuento', self.descuento_input)
         ]
         
         for campo, widget in campos_numericos:
             if campo in datos and datos[campo] is not None:
-                if isinstance(widget, QDoubleSpinBox):
-                    widget.setValue(float(datos[campo]))
-                else:
-                    widget.setValue(int(datos[campo]))
+                widget.setText(str(datos[campo]))
+        
+        # Cargar datos decimales como texto
+        campos_decimales = [
+            ('costo_total', self.costo_total_input),
+            ('costo_matricula', self.costo_matricula_input),
+            ('costo_inscripcion', self.costo_inscripcion_input)
+        ]
+        
+        for campo, widget in campos_decimales:
+            if campo in datos and datos[campo] is not None:
+                widget.setText(str(datos[campo]))
         
         if 'estado' in datos:
             index = self.estado_input.findText(datos['estado'])
@@ -1356,23 +1443,13 @@ class ProgramaOverlay(BaseOverlay):
             self.descripcion_automatica = False
             self.btn_modo_descripcion.setChecked(False)
             self.btn_modo_descripcion.setText("✏️ Manual")
-            self.descripcion_input.setPlainText(datos['descripcion'])
+            self.descripcion_input.setText(datos['descripcion'])
         else:
             # Si no hay descripción, generar automáticamente
             self.descripcion_automatica = True
             self.btn_modo_descripcion.setChecked(True)
             self.btn_modo_descripcion.setText("🔄 Auto")
             self._actualizar_descripcion(forzar_actualizacion=True)
-        
-        # Cargar promociones
-        if 'promocion_descripcion' in datos and datos['promocion_descripcion']:
-            self.promocion_checkbox.setChecked(True)
-            self.promocion_desc_input.setText(datos['promocion_descripcion'])
-        
-        if 'promocion_valido_hasta' in datos and datos['promocion_valido_hasta']:
-            fecha = QDate.fromString(str(datos['promocion_valido_hasta']), "yyyy-MM-dd")
-            if fecha.isValid():
-                self.promocion_valido_hasta_input.setDate(fecha)
         
         # Cargar docente coordinador
         if 'docente_coordinador_id' in datos and datos['docente_coordinador_id']:
@@ -1394,40 +1471,100 @@ class ProgramaOverlay(BaseOverlay):
         
         self._calcular_cuotas()
         self._actualizar_estadisticas()
-        self._habilitar_promocion()
-    
-    def _seleccionar_docente(self, docente_id):
-        """Seleccionar docente en el comboBox"""
-        for i in range(self.docente_coordinador_combo.count()):
-            if self.docente_coordinador_combo.itemData(i) == docente_id:
-                self.docente_coordinador_combo.setCurrentIndex(i)
-                break
     
     def show_form(self, solo_lectura=False, datos=None, modo="nuevo"):
         """Mostrar el overlay con configuración específica"""
         self.solo_lectura = solo_lectura
+
+        # IMPORTANTE: Si solo_lectura es True, forzar modo="ver"
+        if solo_lectura:
+            modo = "ver"
+
         self.set_modo(modo)
-        
+
         if datos:
             self.cargar_datos(datos)
         elif modo == "nuevo":
             self.clear_form()
-        
+
         # Cargar docentes
         self._cargar_docentes_desde_db()
-        
+
         # Configurar botón de guardar según el modo
-        if hasattr(self, 'btn_guardar'):
+        if hasattr(self, 'btn_guardar') and self.btn_guardar is not None:
+            # Desconectar conexiones anteriores para evitar duplicados
+            try:
+                self.btn_guardar.clicked.disconnect()
+            except:
+                pass
+
             if modo == "nuevo":
                 self.btn_guardar.setText("💾 GUARDAR PROGRAMA")
+                self.btn_guardar.clicked.connect(self.on_guardar)
+                self.btn_guardar.setVisible(True)
             elif modo == "editar":
                 self.btn_guardar.setText("💾 ACTUALIZAR PROGRAMA")
-        
+                self.btn_guardar.clicked.connect(self.on_guardar)
+                self.btn_guardar.setVisible(True)
+            elif modo == "ver" or solo_lectura:
+                self.btn_guardar.setText("✅ CERRAR")
+                self.btn_guardar.clicked.connect(self.close_overlay)
+                self.btn_guardar.setVisible(True)
+
+        # Configurar botón cancelar/cerrar
+        if hasattr(self, 'btn_cancelar') and self.btn_cancelar is not None:
+            try:
+                self.btn_cancelar.clicked.disconnect()
+            except:
+                pass
+            self.btn_cancelar.clicked.connect(self.close_overlay)
+
+            # En modo vista, ocultar botón cancelar o cambiar texto
+            if modo == "ver" or solo_lectura:
+                self.btn_cancelar.setText("✕ CERRAR")
+
+        # BLOQUEAR CAMPOS SI ES MODO LECTURA
+        if solo_lectura or modo == "ver":
+            self._bloquear_todos_los_campos(True)
+        else:
+            self._bloquear_todos_los_campos(False)
+
+        # Resetear flag de cierre
+        self._cerrando = False
+
         # Llamar al método base
         super().show_form(solo_lectura)
     
+    def close_overlay(self):
+        """Sobrescribir método close_overlay para asegurar cierre correcto"""
+        # Verificar si ya estamos en proceso de cierre
+        if hasattr(self, '_cerrando') and self._cerrando:
+            logger.debug(f"⚠️  {self.__class__.__name__}.close_overlay() - Ya en proceso de cierre, ignorando")
+            return
+
+        self._cerrando = True
+        logger.debug(f"🔵 {self.__class__.__name__}.close_overlay() - Iniciando cierre")
+
+        # Llamar al método base
+        super().close_overlay()
+
+        # Limpiar datos después del cierre (solo si no es modo vista)
+        if self.modo != "ver" and not self.solo_lectura:
+            QTimer.singleShot(100, self.clear_form)
+
+        # Resetear flag después de un tiempo
+        QTimer.singleShot(500, lambda: setattr(self, '_cerrando', False))
+
+        logger.debug(f"✅ {self.__class__.__name__}.close_overlay() - Completado")
+    
     def on_guardar(self):
         """Método sobrescrito para manejar el guardado con señales específicas"""
+        
+        # Si es modo lectura, simplemente cerrar
+        if self.solo_lectura or self.modo == "ver":
+            self.close_overlay()
+            return
+        
         valido, errores = self.validar_formulario()
         
         if not valido:
@@ -1460,10 +1597,9 @@ class ProgramaOverlay(BaseOverlay):
                     QMessageBox.information(self, "✅ Éxito", 
                                             f"Programa creado exitosamente\n\nCódigo: {programa_guardado.get('codigo', 'N/A')}")
                     
-                    # Cerrar este overlay (de creación/edición)
+                    # Cerrar este overlay
                     self.close_overlay()
                     
-                    # EL OVERLAY EN MODO LECTURA SE ABRIRÁ DESDE LA SEÑAL
                     logger.info(f"✅ Programa creado: {programa_guardado.get('codigo')} (ID: {programa_guardado.get('id')})")
                 
                 else:
@@ -1483,10 +1619,9 @@ class ProgramaOverlay(BaseOverlay):
                     QMessageBox.information(self, "✅ Éxito", 
                                             f"Programa actualizado exitosamente\n\nCódigo: {programa_actualizado.get('codigo', 'N/A')}")
                     
-                    # Cerrar este overlay (de edición)
+                    # Cerrar este overlay
                     self.close_overlay()
                     
-                    # EL OVERLAY EN MODO LECTURA SE ABRIRÁ DESDE LA SEÑAL
                     logger.info(f"✅ Programa actualizado: {programa_actualizado.get('codigo')} (ID: {programa_actualizado.get('id')})")
                 
                 else:
@@ -1497,4 +1632,3 @@ class ProgramaOverlay(BaseOverlay):
             logger.error(f"❌ Error al guardar programa: {e}")
             QMessageBox.critical(self, "❌ Error", 
                                 f"Error al guardar el programa:\n\n{str(e)}")
-    

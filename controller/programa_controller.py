@@ -34,22 +34,7 @@ class ProgramaController:
             # Llamar al modelo para crear el programa
             resultado = ProgramaModel.crear_programa(datos)
             
-            if resultado.get('exito'):
-                return {
-                    'success': True,
-                    'message': resultado['mensaje'],
-                    'data': {
-                        'id': resultado['nuevo_id'],
-                        'codigo': datos['codigo'],
-                        'nombre': datos['nombre']
-                    }
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': resultado['mensaje'],
-                    'data': None
-                }
+            return resultado
                 
         except Exception as e:
             logger.error(f"❌ Error en controlador crear_programa: {e}")
@@ -82,11 +67,7 @@ class ProgramaController:
             # Llamar al modelo para actualizar
             resultado = ProgramaModel.actualizar_programa(programa_id, datos)
             
-            return {
-                'success': resultado['exito'],
-                'message': resultado['mensaje'],
-                'data': None
-            }
+            return resultado
                 
         except Exception as e:
             logger.error(f"❌ Error en controlador actualizar_programa: {e}")
@@ -105,11 +86,7 @@ class ProgramaController:
             # Llamar al modelo para eliminar
             resultado = ProgramaModel.eliminar_programa(programa_id)
             
-            return {
-                'success': resultado['exito'],
-                'message': resultado['mensaje'],
-                'data': None
-            }
+            return resultado
                 
         except Exception as e:
             logger.error(f"❌ Error en controlador eliminar_programa: {e}")
@@ -139,7 +116,7 @@ class ProgramaController:
             if filtros is None:
                 filtros = {}
             
-            resultado = ProgramaModel.buscar_programas(
+            resultado = ProgramaModel.buscar_programas_con_paginacion(
                 codigo=filtros.get('codigo'),
                 nombre=filtros.get('nombre'),
                 estado=filtros.get('estado'),

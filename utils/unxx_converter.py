@@ -1,12 +1,28 @@
-# Archivo: utils/unsxx_converter.py
-from typing import Dict, Any, Optional, Tuple
+# utils/unxx_converter.py
+
 import logging
-import re
+from datetime import datetime, date
+from typing import Dict, Any, Optional, Tuple
+from decimal import Decimal, getcontext, ROUND_HALF_UP
 
 logger = logging.getLogger(__name__)
 
 class UNSXXConverter:
-    """Conversor de datos UNSXX a formato estándar de programas - ACTUALIZADO"""
+    """
+    Convertidor entre formato estándar de la base de datos y formato UNSXX
+    para programas académicos.
+    """
+    
+    # Mapeo de estados
+    ESTADOS_MAP = {
+        'PLANIFICADO': 'PLANIFICADO',
+        'INSCRIPCIONES': 'INSCRIPCIONES',
+        'EN_CURSO': 'EN_CURSO',
+        'CONCLUIDO': 'CONCLUIDO',
+        'CANCELADO': 'CANCELADO',
+        'ACTIVO': 'EN_CURSO',  # Alias
+        'FINALIZADO': 'CONCLUIDO',  # Alias
+    }
     
     # Mapeo de abreviaturas UNSXX (actualizado)
     NIVELES_ABREV = {
@@ -63,171 +79,173 @@ class UNSXXConverter:
     # Mapeo inverso (romano → número)
     ROMANOS_NUMEROS = {v: k for k, v in NUMEROS_ROMANOS.items()}
     
-    @staticmethod
-    def convertir_unsxx_a_programa(unsxx_data: Dict[str, Any]) -> Dict[str, Any]:
+    def convertir_unsxx_a_programa(self, unsxx_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convertir datos del overlay UNSXX a formato estándar de programa
-        
-        Args:
-            unsxx_data: Datos del formulario UNSXX (nuevo formato)
-        
-        Returns:
-            Dict con datos convertidos al formato estándar
+        Convertir datos de formato UNSXX a formato estándar de la base de datos.
+        CORREGIDO: Manejar correctamente decimal.Decimal vs float
         """
+        programa_data = unsxx_data.copy() if unsxx_data else {}
+        
         try:
-            # Mapear estado UNSXX a estado estándar
-            estado_unsxx = unsxx_data.get('estado', 'PLANIFICADO').upper()
-            estado_estandar = 'PLANIFICADO'  # Por defecto
+            # IMPORTANTE: Convertir TODOS los valores decimales a float
+            # antes de cualquier operación matemática
             
-            if estado_unsxx == 'PRE INSCRIPCIÓN' or estado_unsxx == 'INSCRIPCIONES ABIERTAS':
-                estado_estandar = 'PLANIFICADO'
-            elif estado_unsxx == 'EN CURSO':
-                estado_estandar = 'EN_CURSO'
-            elif estado_unsxx == 'CONCLUIDO':
-                estado_estandar = 'FINALIZADO'
-            elif estado_unsxx == 'CANCELADO' or estado_unsxx == 'SUSPENDIDO':
-                estado_estandar = 'CANCELADO'
+            # Costos - convertir a float
+            campos_decimales = ['costo_total', 'costo_matricula', 'costo_inscripcion', 'costo_mensualidad']
+            for campo in campos_decimales:
+                if campo in unsxx_data and unsxx_data[campo] is not None:
+                    valor = unsxx_data[campo]
+                    # Convertir Decimal a float
+                    if hasattr(valor, 'to_decimal') or hasattr(valor, 'as_tuple'):
+                        valor = float(str(valor))
+                    programa_data[campo] = float(valor)
+                else:
+                    programa_data[campo] = 0.0
             
-            # Calcular costo de inscripción como 10% del costo total
-            costo_total = unsxx_data.get('costo_total', 0)
-            costo_inscripcion = round(costo_total * 0.10, 2) if costo_total > 0 else 0
+            # Número de cuotas - convertir a int
+            if 'numero_cuotas' in unsxx_data:
+                programa_data['numero_cuotas'] = int(unsxx_data['numero_cuotas'])
+            else:
+                programa_data['numero_cuotas'] = 0
             
-            # Preparar datos estándar
-            programa_data = {
-                'codigo': unsxx_data.get('codigo', ''),
-                'nombre': unsxx_data.get('nombre', ''),
-                'descripcion': unsxx_data.get('descripcion', ''),
-                'duracion_meses': unsxx_data.get('duracion_meses', 24),
-                'horas_totales': unsxx_data.get('horas_totales', 1200),
-                'costo_total': costo_total,
-                'costo_matricula': unsxx_data.get('costo_matricula', 0),
-                'costo_inscripcion': costo_inscripcion,
-                'costo_mensualidad': unsxx_data.get('costo_por_cuota', 0),
-                'numero_cuotas': unsxx_data.get('numero_cuotas', 10),
-                'cupos_maximos': unsxx_data.get('cupos_maximos', 30),
-                'cupos_inscritos': unsxx_data.get('cupos_inscritos', 0),
-                'estado': estado_estandar,
-                'fecha_inicio': unsxx_data.get('fecha_inicio'),
-                'fecha_fin': unsxx_data.get('fecha_fin'),
-                'docente_coordinador_id': unsxx_data.get('docente_coordinador_id'),
-                'promocion_descuento': 0,  # Por defecto
-                'promocion_descripcion': '',
-                'promocion_valido_hasta': None
-            }
+            # Recalcular costo_mensualidad si es necesario
+            if programa_data['costo_total'] > 0 and programa_data['numero_cuotas'] > 0:
+                programa_data['costo_mensualidad'] = round(
+                    programa_data['costo_total'] / programa_data['numero_cuotas'], 
+                    2
+                )
             
-            # Agregar metadatos UNSXX como JSON en descripción extendida
-            descripcion_extendida = programa_data['descripcion'] + "\n\n"
-            descripcion_extendida += f"=== METADATOS UNSXX ===\n"
-            descripcion_extendida += f"• Nivel: {unsxx_data.get('nivel_academico', '')}\n"
-            descripcion_extendida += f"• Carrera/Programa: {unsxx_data.get('carrera_programa', '')}\n"
-            descripcion_extendida += f"• Modalidad: VIRTUAL\n"  # Siempre virtual
-            descripcion_extendida += f"• Año Académico: {unsxx_data.get('anio_academico', '')}\n"
-            descripcion_extendida += f"• Versión: {unsxx_data.get('version', '')}\n"
-            descripcion_extendida += f"• Créditos: {unsxx_data.get('creditos_academicos', '')}\n"
-            descripcion_extendida += f"• Código UNSXX: {unsxx_data.get('codigo', '')}"
+            # Campos numéricos enteros
+            campos_enteros = ['duracion_meses', 'horas_totales', 'cupos_maximos', 'cupos_inscritos']
+            for campo in campos_enteros:
+                if campo in unsxx_data and unsxx_data[campo] is not None:
+                    programa_data[campo] = int(unsxx_data[campo])
+                else:
+                    programa_data[campo] = 0
             
-            programa_data['descripcion'] = descripcion_extendida
+            # Estado - mapear a valores válidos de BD
+            if 'estado' in unsxx_data:
+                estado = unsxx_data['estado']
+                programa_data['estado'] = self.ESTADOS_MAP.get(estado, 'PLANIFICADO')
             
-            logger.info(f"✅ Datos UNSXX convertidos: {programa_data['codigo']}")
-            return programa_data
+            # Fechas - mantener formato string
+            if 'fecha_inicio' in unsxx_data and unsxx_data['fecha_inicio']:
+                programa_data['fecha_inicio'] = str(unsxx_data['fecha_inicio'])
+            if 'fecha_fin' in unsxx_data and unsxx_data['fecha_fin']:
+                programa_data['fecha_fin'] = str(unsxx_data['fecha_fin'])
+            
+            # Docente coordinador
+            if 'docente_coordinador_id' in unsxx_data:
+                programa_data['docente_coordinador_id'] = unsxx_data['docente_coordinador_id']
+            
+            # Nombre y descripción
+            if 'nombre' in unsxx_data:
+                programa_data['nombre'] = str(unsxx_data['nombre'])
+            if 'descripcion' in unsxx_data:
+                programa_data['descripcion'] = str(unsxx_data['descripcion'])
+            
+            # Código
+            if 'codigo' in unsxx_data:
+                programa_data['codigo'] = str(unsxx_data['codigo'])
+            
+            logger.info(f"✅ Datos convertidos a formato estándar para: {programa_data.get('codigo', 'N/A')}")
             
         except Exception as e:
             logger.error(f"Error convirtiendo datos UNSXX: {e}")
-            return {}
+            import traceback
+            traceback.print_exc()
+            # Devolver datos originales con valores por defecto para no romper
+            for campo in ['costo_total', 'costo_matricula', 'costo_inscripcion', 'costo_mensualidad']:
+                if campo not in programa_data or programa_data[campo] is None:
+                    programa_data[campo] = 0.0
+        
+        return programa_data
     
-    @staticmethod
-    def convertir_programa_a_unsxx(programa_data: Dict[str, Any]) -> Dict[str, Any]:
+    def convertir_programa_a_unsxx(self, programa_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convertir datos de programa estándar a formato UNSXX para el overlay
-        
-        Args:
-            programa_data: Datos del programa estándar
-        
-        Returns:
-            Dict con datos convertidos al formato UNSXX
+        Convertir datos de programa (formato BD) a formato UNSXX.
+        Este método debe ser compatible con lo que espera ProgramaOverlay.cargar_datos()
         """
+        unsxx_data = programa_data.copy() if programa_data else {}
+        
         try:
-            # Extraer código UNSXX
+            # Extraer componentes del código UNSXX (ej: DIP-INF-2025-I)
             codigo = programa_data.get('codigo', '')
-            
-            # Extraer metadatos de la descripción si existen
-            descripcion = programa_data.get('descripcion', '')
-            
-            # Intentar extraer información del código UNSXX
-            nivel_extraido = None
-            carrera_extraida = None
-            año_extraido = None
-            version_extraida = None
-            
-            if codigo:
+            if codigo and isinstance(codigo, str):
                 partes = codigo.split('-')
                 if len(partes) >= 4:
-                    # Formato: NIVEL-CARRERA-AÑO-VERSION
+                    # Mapear abreviatura a nombre completo si es posible
+                    from view.overlays.programa_overlay import ProgramaOverlay
                     nivel_abrev = partes[0]
-                    carrera_abrev = partes[1]
-                    año_str = partes[2]
-                    version_romana = '-'.join(partes[3:])  # Por si hay guiones en la versión
+                    nivel_completo = next(
+                        (k for k, v in ProgramaOverlay.NIVELES_ACADEMICOS.items() if v == nivel_abrev),
+                        nivel_abrev
+                    )
+                    unsxx_data['nivel_academico'] = nivel_completo
                     
-                    # Convertir a valores legibles
-                    nivel_extraido = UNSXXConverter.ABREV_NIVELES.get(nivel_abrev, nivel_abrev)
-                    carrera_extraida = UNSXXConverter.CARRERAS_ABREV.get(carrera_abrev, carrera_abrev)
-                    año_extraido = int(año_str) if año_str.isdigit() else año_str
-                    version_extraida = version_romana
+                    carrera_abrev = partes[1]
+                    carrera_completa = next(
+                        (nombre for nombre, abrev in ProgramaOverlay.CARRERAS_UNSXX if abrev == carrera_abrev),
+                        carrera_abrev
+                    )
+                    unsxx_data['carrera_programa'] = carrera_completa
+                    
+                    # Año
+                    try:
+                        año = int(partes[2]) if len(partes[2]) == 4 else int("20" + partes[2])
+                        unsxx_data['anio_academico'] = año
+                    except:
+                        unsxx_data['anio_academico'] = datetime.now().year
+                    
+                    # Versión (número romano)
+                    if len(partes) >= 4:
+                        unsxx_data['version'] = partes[3]
             
-            # Extraer descripción básica (sin metadatos UNSXX)
-            descripcion_basica = descripcion
-            if "=== METADATOS UNSXX ===" in descripcion:
-                partes = descripcion.split("=== METADATOS UNSXX ===")
-                descripcion_basica = partes[0].strip()
-            
-            from datetime import datetime
-            año_hoy = datetime.now().year
-            
-            unsxx_data = {
-                'codigo': codigo,
-                'nombre': programa_data.get('nombre', ''),
-                'descripcion': descripcion_basica,
-                'nombre_activo': True,
-                
-                # Valores por defecto o extraídos del código
-                'nivel_academico': nivel_extraido or "Maestría",
-                'carrera_programa': carrera_extraida or "Ing. Informática",
-                'anio_academico': año_extraido or año_hoy,
-                'version': version_extraida or "I",
-                
-                # Datos del programa
-                'duracion_meses': programa_data.get('duracion_meses', 24),
-                'horas_totales': programa_data.get('horas_totales', 1200),
-                'creditos_academicos': 60,
-                'estado': programa_data.get('estado', 'PLANIFICADO'),
-                'cupos_maximos': programa_data.get('cupos_maximos', 30),
-                'cupos_inscritos': programa_data.get('cupos_inscritos', 0),
-                'costo_total': float(programa_data.get('costo_total', 5000)),
-                'costo_matricula': float(programa_data.get('costo_matricula', 200)),
-                'numero_cuotas': programa_data.get('numero_cuotas', 10),
-                'costo_por_cuota': float(programa_data.get('costo_mensualidad', 500)),
-                'fecha_inicio': programa_data.get('fecha_inicio'),
-                'fecha_fin': programa_data.get('fecha_fin'),
-                'modo': 'editar',
-                'id': programa_data.get('id'),
-                
-                # Campos eliminados (para compatibilidad)
-                'facultad': '',  # Eliminado
-                'modalidad': 'VIRTUAL',  # Fijo
-                'facultad_abreviatura': '',
-                'modalidad_abreviatura': 'VIR',
-                'nivel_abreviatura': '',
-                'carrera_abreviatura': '',
-                'institucion': 'UNSXX',
-                'docente_coordinador_id': None
+            # Mapear campos específicos
+            campo_mapeos = {
+                'nombre': 'nombre',
+                'descripcion': 'descripcion',
+                'duracion_meses': 'duracion_meses',
+                'horas_totales': 'horas_totales',
+                'cupos_maximos': 'cupos_maximos',
+                'cupos_inscritos': 'cupos_inscritos',
+                'fecha_inicio': 'fecha_inicio',
+                'fecha_fin': 'fecha_fin',
+                'estado': 'estado',
             }
             
+            for campo_std, campo_unsxx in campo_mapeos.items():
+                if campo_std in programa_data:
+                    unsxx_data[campo_unsxx] = programa_data[campo_std]
+            
+            # Manejar costos
+            unsxx_data['costo_total'] = float(programa_data.get('costo_total', 0))
+            unsxx_data['costo_matricula'] = float(programa_data.get('costo_matricula', 0))
+            unsxx_data['costo_inscripcion'] = float(programa_data.get('costo_inscripcion', 0))
+            unsxx_data['costo_mensualidad'] = float(programa_data.get('costo_mensualidad', 0))
+            unsxx_data['numero_cuotas'] = int(programa_data.get('numero_cuotas', 0))
+            
+            # Créditos (opcional)
+            if 'creditos' in programa_data:
+                unsxx_data['creditos_academicos'] = int(programa_data['creditos'])
+            
+            # Docente coordinador
+            if 'docente_coordinador_id' in programa_data:
+                unsxx_data['docente_coordinador_id'] = programa_data['docente_coordinador_id']
+            
+            # Campos adicionales UNSXX
+            unsxx_data['institucion'] = 'UNSXX'
+            unsxx_data['modalidad'] = 'VIRTUAL'  # Valor por defecto
+            unsxx_data['modalidad_abreviatura'] = 'VIR'
+            
             logger.info(f"✅ Datos convertidos a UNSXX para: {codigo}")
-            return unsxx_data
             
         except Exception as e:
             logger.error(f"Error convirtiendo a UNSXX: {e}")
-            return {}
+            import traceback
+            traceback.print_exc()
+        
+        return unsxx_data
     
     @staticmethod
     def parsear_codigo_unsxx(codigo: str) -> Optional[Dict[str, Any]]:

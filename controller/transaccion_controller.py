@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from decimal import Decimal
+from pathlib import Path
 
 from model.transaccion_model import TransaccionModel
 from model.estudiante_model import EstudianteModel
@@ -29,21 +30,21 @@ class TransaccionController:
         self.concepto_model = ConceptoPagoModel()
     
     def crear_transaccion(self, datos_transaccion, usuario_id):
-        """Crear una nueva transacción."""
+        """Crear una nueva transacción - Versión corregida."""
         try:
-            from datetime import datetime
-            
+            # Validar datos requeridos
+            errores = self._validar_datos_transaccion(datos_transaccion)
+            if errores:
+                return {'exito': False, 'mensaje': 'Errores de validación', 'errores': errores}
+
             # Determinar si es ingreso o egreso
             es_ingreso = datos_transaccion.get('monto_final', 0) >= 0
-            # O puedes tener un campo específico en el formulario
-            # es_ingreso = datos_transaccion.get('tipo_operacion', 'INGRESO') == 'INGRESO'
-            
+
             # Generar número de transacción
             fecha_pago = datos_transaccion.get('fecha_pago')
             if isinstance(fecha_pago, str):
-                from datetime import datetime
                 fecha_pago = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
-            
+
             numero_transaccion = TransaccionModel.generar_numero_transaccion(
                 fecha_pago=fecha_pago,
                 estudiante_id=datos_transaccion.get('estudiante_id'),
@@ -52,41 +53,142 @@ class TransaccionController:
                 usuario_id=usuario_id,
                 es_ingreso=es_ingreso
             )
-            
-            # Agregar número a los datos
-            datos_transaccion['numero_transaccion'] = numero_transaccion
-            
-            # Llamar al modelo para crear
-            resultado = TransaccionModel.crear_transaccion(datos_transaccion, usuario_id)
-            
-            if resultado:
-                # También generar número de comprobante si aplica
-                if datos_transaccion.get('forma_pago') not in ['EFECTIVO', 'OTROS']:
-                    # Generar número de comprobante basado en la transacción
-                    numero_comprobante = self._generar_numero_comprobante(
-                        transaccion_id=resultado.get('id'),
-                        fecha_pago=fecha_pago,
-                        forma_pago=datos_transaccion.get('forma_pago')
+
+            # Preparar datos para el modelo
+            datos_completos = {
+                'estudiante_id': datos_transaccion.get('estudiante_id'),
+                'programa_id': datos_transaccion.get('programa_id'),
+                'fecha_pago': datos_transaccion['fecha_pago'],
+                'monto_total': float(datos_transaccion['monto_total']),
+                'descuento_total': float(datos_transaccion.get('descuento_total', 0)),
+                'forma_pago': datos_transaccion['forma_pago'],
+                'estado': datos_transaccion.get('estado', 'REGISTRADO'),
+                'numero_comprobante': datos_transaccion.get('numero_comprobante'),
+                'banco_origen': datos_transaccion.get('banco_origen'),
+                'cuenta_origen': datos_transaccion.get('cuenta_origen'),
+                'observaciones': datos_transaccion.get('observaciones', ''),
+                'registrado_por': usuario_id,
+                'detalles': datos_transaccion.get('detalles', [])
+            }
+
+            # Si hay inscripción_id, verificar que existe
+            if datos_transaccion.get('inscripcion_id'):
+                from model.inscripcion_model import InscripcionModel
+                inscripcion = InscripcionModel.obtener_detalle_inscripcion(
+                    datos_transaccion['inscripcion_id']
+                )
+                if not inscripcion or not inscripcion.get('success'):
+                    return {'exito': False, 'mensaje': 'Inscripción no encontrada'}
+
+            # Llamar al modelo para crear la transacción
+            resultado = TransaccionModel.crear_transaccion_completa(**datos_completos)
+
+            if resultado.get('exito'):
+                # Procesar documentos adjuntos si existen
+                if datos_transaccion.get('documentos_temp'):
+                    self._procesar_documentos_adjuntos(
+                        resultado['transaccion_id'],
+                        datos_transaccion['documentos_temp'],
+                        usuario_id
                     )
-                    
-                    # Actualizar transacción con número de comprobante
-                    if numero_comprobante:
-                        TransaccionModel.actualizar_comprobante(
-                            transaccion_id=resultado.get('id'),
-                            numero_comprobante=numero_comprobante
-                        )
-                        resultado['numero_comprobante'] = numero_comprobante
-                
+
+                # Actualizar saldo de inscripción si existe
+                if datos_transaccion.get('inscripcion_id'):
+                    self._actualizar_saldo_inscripcion(   # <-- Línea 96
+                        datos_transaccion['inscripcion_id'],
+                        float(datos_transaccion['monto_final'])
+                    )
+
                 resultado['numero_transaccion'] = numero_transaccion
-                return {'exito': True, 'transaccion_id': resultado.get('id'), 
-                        'numero_transaccion': numero_transaccion, 
-                        'mensaje': 'Transacción registrada exitosamente'}
+                return resultado
             else:
-                return {'exito': False, 'mensaje': 'Error al crear transacción'}
-                
+                return resultado
+
         except Exception as e:
             logger.error(f"Error en crear_transaccion: {e}")
             return {'exito': False, 'mensaje': str(e)}
+    
+    def _actualizar_saldo_inscripcion(self, inscripcion_id: int, monto_pagado: float):
+        """
+        Actualizar el saldo de una inscripción después de registrar un pago.
+
+        Args:
+            inscripcion_id: ID de la inscripción
+            monto_pagado: Monto pagado en la transacción
+        """
+        try:
+            from model.inscripcion_model import InscripcionModel
+            from config.database import Database
+
+            # Obtener información actual de la inscripción
+            resultado = InscripcionModel.obtener_detalle_inscripcion(inscripcion_id)
+
+            if not resultado or not resultado.get('success'):
+                logger.warning(f"No se pudo obtener información de inscripción {inscripcion_id}")
+                return
+
+            data = resultado.get('data', {})
+            inscripcion_data = data.get('inscripcion', {})
+
+            # Calcular nuevo saldo
+            saldo_actual = float(inscripcion_data.get('saldo_pendiente', 0))
+            monto_total = float(inscripcion_data.get('monto_total', 0))
+
+            nuevo_saldo = saldo_actual - monto_pagado
+            if nuevo_saldo < 0:
+                nuevo_saldo = 0
+
+            # Actualizar saldo en la base de datos
+            connection = None
+            cursor = None
+
+            try:
+                connection = Database.get_connection()
+                if not connection:
+                    logger.error("No se pudo obtener conexión para actualizar saldo")
+                    return
+
+                cursor = connection.cursor()
+
+                query = """
+                    UPDATE inscripciones 
+                    SET saldo_pendiente = %s,
+                        ultimo_pago_fecha = %s,
+                        estado = CASE 
+                            WHEN %s <= 0 THEN 'COMPLETADO'
+                            ELSE estado 
+                        END
+                    WHERE id = %s
+                """
+
+                fecha_actual = datetime.now().date()
+                cursor.execute(query, (
+                    nuevo_saldo,
+                    fecha_actual,
+                    nuevo_saldo,
+                    inscripcion_id
+                ))
+
+                connection.commit()
+
+                logger.info(f"✅ Saldo actualizado para inscripción {inscripcion_id}: {saldo_actual} → {nuevo_saldo}")
+
+            except Exception as e:
+                logger.error(f"Error actualizando saldo de inscripción: {e}")
+                if connection:
+                    connection.rollback()
+            finally:
+                try:
+                    if cursor:
+                        cursor.close()
+                except:
+                    pass
+                
+                if connection:
+                    Database.return_connection(connection)
+
+        except Exception as e:
+            logger.error(f"Error en _actualizar_saldo_inscripcion: {e}")
     
     def _generar_numero_comprobante(self, transaccion_id, fecha_pago, forma_pago):
         """
@@ -450,89 +552,78 @@ class TransaccionController:
         return datos_preparados
     
     def _validar_datos_transaccion(self, datos: Dict[str, Any]) -> List[str]:
-        """
-        Validar datos de transacción
-        
-        Args:
-            datos: Datos a validar
-            
-        Returns:
-            Lista de errores
-        """
+        """Validar datos de transacción - Versión mejorada"""
         errores = []
-        
-        # Validar campos requeridos
-        campos_requeridos = ['fecha_pago', 'forma_pago', 'monto_total']
+
+        # Campos requeridos
+        campos_requeridos = ['fecha_pago', 'forma_pago', 'monto_total', 'monto_final']
         for campo in campos_requeridos:
-            if campo not in datos or not datos[campo]:
+            if campo not in datos or datos[campo] is None:
                 errores.append(f"El campo '{campo}' es requerido")
-        
+
         # Validar montos
-        monto_total = datos.get('monto_total', 0)
         try:
-            monto_total = float(monto_total)
+            monto_total = float(datos.get('monto_total', 0))
+            monto_final = float(datos.get('monto_final', 0))
+            descuento_total = float(datos.get('descuento_total', 0))
+
             if monto_total <= 0:
                 errores.append("El monto total debe ser mayor a 0")
-        except (ValueError, TypeError):
-            errores.append("Monto total no válido")
-        
-        descuento_total = datos.get('descuento_total', 0)
-        try:
-            descuento_total = float(descuento_total)
+
             if descuento_total < 0:
                 errores.append("El descuento no puede ser negativo")
+
             if descuento_total > monto_total:
                 errores.append("El descuento no puede ser mayor al monto total")
+
+            # Verificar cálculo
+            if abs(monto_final - (monto_total - descuento_total)) > 0.01:
+                errores.append("El monto final no coincide con el cálculo (total - descuento)")
+
         except (ValueError, TypeError):
-            errores.append("Descuento no válido")
-        
+            errores.append("Error en los valores numéricos")
+
+        # Validar detalles
+        detalles = datos.get('detalles', [])
+        if not detalles:
+            errores.append("Debe agregar al menos un concepto de pago")
+        else:
+            for i, detalle in enumerate(detalles, 1):
+                if not detalle.get('concepto_pago_id'):
+                    errores.append(f"Detalle {i}: Concepto de pago es requerido")
+                if not detalle.get('descripcion'):
+                    errores.append(f"Detalle {i}: Descripción es requerida")
+                if detalle.get('subtotal', 0) <= 0:
+                    errores.append(f"Detalle {i}: El subtotal debe ser mayor a 0")
+
         # Validar forma de pago
         forma_pago = datos.get('forma_pago')
-        if forma_pago:
-            formas_validas = [fp.value for fp in FormaPago]
-            if forma_pago not in formas_validas:
-                errores.append(f"Forma de pago no válida. Debe ser una de: {', '.join(formas_validas)}")
-            
-            # Validar datos específicos por forma de pago
-            if forma_pago in ['TRANSFERENCIA', 'DEPOSITO']:
-                if not datos.get('banco_origen'):
-                    errores.append("Banco origen es requerido para transferencias/depósitos")
-                if not datos.get('cuenta_origen'):
-                    errores.append("Cuenta origen es requerida para transferencias/depósitos")
-        
-        # Validar fecha
-        fecha_pago = datos.get('fecha_pago')
-        if fecha_pago:
-            try:
-                datetime.strptime(str(fecha_pago), '%Y-%m-%d')
-            except ValueError:
-                errores.append("Fecha de pago no válida. Formato: YYYY-MM-DD")
-        
+        if forma_pago in ['TRANSFERENCIA', 'DEPOSITO']:
+            if not datos.get('banco_origen'):
+                errores.append("Banco origen es requerido para transferencias/depósitos")
+            if not datos.get('cuenta_origen'):
+                errores.append("Cuenta origen es requerida para transferencias/depósitos")
+
         return errores
     
     def _procesar_documentos_adjuntos(self, transaccion_id: int, documentos_temp: List[Dict], usuario_id: Optional[int]) -> None:
-        """
-        Procesar documentos adjuntos temporales
-        
-        Args:
-            transaccion_id: ID de la transacción
-            documentos_temp: Lista de documentos temporales
-            usuario_id: ID del usuario
-        """
+        """Procesar documentos adjuntos - Versión corregida"""
         try:
             for doc_temp in documentos_temp:
-                if 'ruta_original' in doc_temp:
-                    resultado = self.transaccion_model.subir_documento_respaldo(
+                if 'ruta_original' in doc_temp and Path(doc_temp['ruta_original']).exists():  # <-- Línea: 530
+                    resultado = TransaccionModel().subir_documento_respaldo(
                         transaccion_id=transaccion_id,
                         tipo_documento=doc_temp.get('tipo_documento', 'COMPROBANTE'),
                         ruta_archivo=doc_temp['ruta_original'],
                         observaciones=doc_temp.get('observaciones'),
                         subido_por=usuario_id
                     )
-                    
+
                     if not resultado.get('success'):
                         logger.error(f"Error subiendo documento: {resultado.get('message')}")
-                        
+                    else:
+                        logger.info(f"Documento subido exitosamente: {doc_temp.get('nombre_original')}")
+
         except Exception as e:
             logger.error(f"Error procesando documentos adjuntos: {e}")
     
@@ -1074,4 +1165,3 @@ class TransaccionController:
         except Exception as e:
             logger.error(f"Error obteniendo estadísticas: {e}")
             return {}
-    

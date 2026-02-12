@@ -19,14 +19,14 @@ class ProgramaModel(BaseModel):
             connection = Database.get_connection()
             if not connection:
                 return {
-                    'nuevo_id': None,
-                    'mensaje': 'No se pudo obtener conexión a la base de datos',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo obtener conexión a la base de datos'
                 }
             
             cursor = connection.cursor()
             
-            # Preparar parámetros para la función
+            # Preparar parámetros para la función (eliminados campos de promoción)
             params = (
                 datos.get('codigo'),
                 datos.get('nombre'),
@@ -43,10 +43,8 @@ class ProgramaModel(BaseModel):
                 datos.get('estado', 'PLANIFICADO'),
                 datos.get('fecha_inicio'),
                 datos.get('fecha_fin'),
-                datos.get('docente_coordinador_id'),
-                datos.get('promocion_descuento', 0),
-                datos.get('promocion_descripcion', ''),
-                datos.get('promocion_valido_hasta')
+                datos.get('docente_coordinador_id')
+                # NOTA: Se eliminaron los parámetros de promoción
             )
             
             # Ejecutar función usando callproc
@@ -58,30 +56,46 @@ class ProgramaModel(BaseModel):
             Database.return_connection(connection)
             
             if result:
-                nuevo_id = result[0]  # primer valor de la tupla
-                mensaje = result[1]   # segundo valor de la tupla
-                exito = result[2]     # tercer valor de la tupla
+                nuevo_id = result[0]
+                mensaje = result[1]
+                exito = result[2]
                 
                 if exito:
                     logger.info(f"✅ Programa creado exitosamente - ID: {nuevo_id}")
-                    return {
-                        'nuevo_id': nuevo_id,
-                        'mensaje': mensaje,
-                        'exito': True
-                    }
+                    
+                    # Obtener el programa completo para devolverlo
+                    programa_completo = ProgramaModel.obtener_programa(nuevo_id)
+                    if programa_completo.get('success'):
+                        return {
+                            'success': True,
+                            'data': programa_completo['data'],
+                            'message': mensaje
+                        }
+                    else:
+                        # Si no podemos obtener el programa completo, devolver al menos los datos básicos
+                        return {
+                            'success': True,
+                            'data': {
+                                'id': nuevo_id,
+                                'codigo': datos.get('codigo'),
+                                'nombre': datos.get('nombre'),
+                                'mensaje': mensaje
+                            },
+                            'message': mensaje
+                        }
                 else:
                     logger.error(f"❌ Error en función PostgreSQL: {mensaje}")
                     return {
-                        'nuevo_id': None,
-                        'mensaje': mensaje,
-                        'exito': False
+                        'success': False,
+                        'data': None,
+                        'message': mensaje
                     }
             else:
                 logger.error("❌ No se pudo crear el programa (resultado vacío)")
                 return {
-                    'nuevo_id': None,
-                    'mensaje': 'No se pudo crear el programa',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo crear el programa'
                 }
                 
         except Exception as e:
@@ -89,9 +103,9 @@ class ProgramaModel(BaseModel):
             import traceback
             traceback.print_exc()
             return {
-                'nuevo_id': None,
-                'mensaje': f'Error al crear programa: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error al crear programa: {str(e)}'
             }
     
     @staticmethod
@@ -103,14 +117,14 @@ class ProgramaModel(BaseModel):
             connection = Database.get_connection()
             if not connection:
                 return {
-                    'filas_afectadas': 0,
-                    'mensaje': 'No se pudo obtener conexión a la base de datos',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo obtener conexión a la base de datos'
                 }
             
             cursor = connection.cursor()
             
-            # Preparar parámetros
+            # Preparar parámetros (eliminados campos de promoción)
             params = (
                 programa_id,
                 datos.get('codigo'),
@@ -128,10 +142,8 @@ class ProgramaModel(BaseModel):
                 datos.get('estado'),
                 datos.get('fecha_inicio'),
                 datos.get('fecha_fin'),
-                datos.get('docente_coordinador_id'),
-                datos.get('promocion_descuento'),
-                datos.get('promocion_descripcion', ''),
-                datos.get('promocion_valido_hasta')
+                datos.get('docente_coordinador_id')
+                # NOTA: Se eliminaron los parámetros de promoción
             )
             
             # Ejecutar función
@@ -149,31 +161,41 @@ class ProgramaModel(BaseModel):
                 
                 if exito:
                     logger.info(f"✅ Programa actualizado - Filas afectadas: {filas_afectadas}")
-                    return {
-                        'filas_afectadas': filas_afectadas,
-                        'mensaje': mensaje,
-                        'exito': True
-                    }
+                    
+                    # Obtener el programa actualizado
+                    programa_actualizado = ProgramaModel.obtener_programa(programa_id)
+                    if programa_actualizado.get('success'):
+                        return {
+                            'success': True,
+                            'data': programa_actualizado['data'],
+                            'message': mensaje
+                        }
+                    else:
+                        return {
+                            'success': True,
+                            'data': None,
+                            'message': mensaje
+                        }
                 else:
                     logger.error(f"❌ Error actualizando programa: {mensaje}")
                     return {
-                        'filas_afectadas': 0,
-                        'mensaje': mensaje,
-                        'exito': False
+                        'success': False,
+                        'data': None,
+                        'message': mensaje
                     }
             else:
                 return {
-                    'filas_afectadas': 0,
-                    'mensaje': 'Error al actualizar programa',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'Error al actualizar programa'
                 }
                 
         except Exception as e:
             logger.error(f"❌ Error al actualizar programa: {e}")
             return {
-                'filas_afectadas': 0,
-                'mensaje': f'Error al actualizar programa: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error al actualizar programa: {str(e)}'
             }
     
     @staticmethod
@@ -185,9 +207,9 @@ class ProgramaModel(BaseModel):
             connection = Database.get_connection()
             if not connection:
                 return {
-                    'filas_afectadas': 0,
-                    'mensaje': 'No se pudo obtener conexión a la base de datos',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo obtener conexión a la base de datos'
                 }
             
             cursor = connection.cursor()
@@ -206,23 +228,23 @@ class ProgramaModel(BaseModel):
                 exito = result[2]
                 
                 return {
-                    'filas_afectadas': filas_afectadas,
-                    'mensaje': mensaje,
-                    'exito': exito
+                    'success': exito,
+                    'data': None,
+                    'message': mensaje
                 }
             else:
                 return {
-                    'filas_afectadas': 0,
-                    'mensaje': 'No se pudo eliminar el programa',
-                    'exito': False
+                    'success': False,
+                    'data': None,
+                    'message': 'No se pudo eliminar el programa'
                 }
                 
         except Exception as e:
             logger.error(f"❌ Error al eliminar programa: {e}")
             return {
-                'filas_afectadas': 0,
-                'mensaje': f'Error al eliminar programa: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error al eliminar programa: {str(e)}'
             }
     
     @staticmethod
@@ -249,7 +271,7 @@ class ProgramaModel(BaseModel):
             Database.return_connection(connection)
             
             if result:
-                # Mapear resultado a diccionario
+                # Mapear resultado a diccionario (eliminados campos de promoción)
                 programa = {
                     'id': result[0],
                     'codigo': result[1],
@@ -267,10 +289,8 @@ class ProgramaModel(BaseModel):
                     'estado': result[13],
                     'fecha_inicio': result[14],
                     'fecha_fin': result[15],
-                    'docente_coordinador_id': result[16],
-                    'promocion_descuento': result[17],
-                    'promocion_descripcion': result[18],
-                    'promocion_valido_hasta': result[19]
+                    'docente_coordinador_id': result[16]
+                    # NOTA: Se eliminaron los campos de promoción del mapeo
                 }
                 
                 logger.debug(f"✅ Programa encontrado: {programa['codigo']}")
@@ -303,14 +323,14 @@ class ProgramaModel(BaseModel):
                         fecha_inicio_desde: Optional[str] = None,
                         fecha_inicio_hasta: Optional[str] = None,
                         limit: int = 20,
-                        offset: int = 0) -> List[Dict]:  # <-- Ahora devuelve lista
+                        offset: int = 0) -> List[Dict]:
         """Buscar programas usando la función fn_buscar_programas"""
         try:
             logger.debug(f"DEBUG - ProgramaModel.buscar_programas")
             
             connection = Database.get_connection()
             if not connection:
-                return []  # <-- Devuelve lista vacía en caso de error
+                return []
             
             cursor = connection.cursor()
             
@@ -353,22 +373,20 @@ class ProgramaModel(BaseModel):
                         'estado': row[13],
                         'fecha_inicio': row[14],
                         'fecha_fin': row[15],
-                        'docente_coordinador_id': row[16],
-                        'promocion_descuento': row[17],
-                        'promocion_descripcion': row[18],
-                        'promocion_valido_hasta': row[19]
+                        'docente_coordinador_id': row[16]
+                        # NOTA: Se eliminaron los campos de promoción del mapeo
                     }
                     programas.append(programa)
                 
                 logger.info(f"✅ {len(programas)} programas encontrados")
-                return programas  # <-- Devuelve lista directa
+                return programas
                 
             else:
-                return []  # <-- Devuelve lista vacía
+                return []
                 
         except Exception as e:
             logger.error(f"❌ Error buscando programas: {e}")
-            return []  # <-- Devuelve lista vacía en caso de error
+            return []
     
     @staticmethod
     def buscar_programas_con_paginacion(codigo: Optional[str] = None,
@@ -602,9 +620,9 @@ class ProgramaModel(BaseModel):
         except Exception as e:
             logger.error(f"Error en crear: {e}")
             return {
-                'nuevo_id': None,
-                'mensaje': f'Error: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error: {str(e)}'
             }
     
     @staticmethod
@@ -615,9 +633,9 @@ class ProgramaModel(BaseModel):
         except Exception as e:
             logger.error(f"Error en actualizar: {e}")
             return {
-                'filas_afectadas': 0,
-                'mensaje': f'Error: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error: {str(e)}'
             }
     
     @staticmethod
@@ -628,7 +646,7 @@ class ProgramaModel(BaseModel):
         except Exception as e:
             logger.error(f"Error en eliminar: {e}")
             return {
-                'filas_afectadas': 0,
-                'mensaje': f'Error: {str(e)}',
-                'exito': False
+                'success': False,
+                'data': None,
+                'message': f'Error: {str(e)}'
             }

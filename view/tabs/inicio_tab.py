@@ -104,9 +104,9 @@ class InicioTab(BaseTab):
         # Formulario de estudiantes
         estudiantes_box = self._create_search_form(
             "🔍 BUSCAR ESTUDIANTES",
-            "Carnet:", "Ej: 1234567", "BE",
+            "Carnet:", "Ej: 1234567", "Todos",
             "Nombre:", "Ej: Juan Pérez",
-            ["BE", "CB", "CH", "LP", "OR", "PD", "PT", "SC", "TJ", "EX"],
+            ["Todos", "BE", "CB", "CH", "LP", "OR", "PD", "PT", "SC", "TJ", "EX"],
             self._on_search_estudiantes,
             self._on_show_all_estudiantes,
             self._on_new_estudiante
@@ -119,9 +119,9 @@ class InicioTab(BaseTab):
         # Formulario de docentes
         docentes_box = self._create_search_form(
             "👨‍🏫 BUSCAR DOCENTES",
-            "Carnet:", "Ej: 8765432", "CB",
+            "Carnet:", "Ej: 8765432", "Todos",
             "Nombre:", "Ej: María López",
-            ["BE", "CB", "CH", "LP", "OR", "PD", "PT", "SC", "TJ", "EX"],
+            ["Todos", "BE", "CB", "CH", "LP", "OR", "PD", "PT", "SC", "TJ", "EX"],
             self._on_search_docentes,
             self._on_show_all_docentes,
             self._on_new_docente
@@ -302,15 +302,19 @@ class InicioTab(BaseTab):
     
     def _update_action_buttons_based_on_view(self):
         """Actualizar botones de acción según la vista actual."""
-        if self.current_view == "estudiantes":
-            self._setup_action_buttons_for_estudiantes()
-        elif self.current_view == "docentes":
-            self._setup_action_buttons_for_docentes()
-        elif self.current_view == "programas":
-            self._setup_action_buttons_for_programas()
-        
-        # Actualizar estado de botones según selección
-        self._on_table_selection_changed()
+        try:
+            if self.current_view == "estudiantes":
+                self._setup_action_buttons_for_estudiantes()
+            elif self.current_view == "docentes":
+                self._setup_action_buttons_for_docentes()
+            elif self.current_view == "programas":
+                self._setup_action_buttons_for_programas()
+            
+            # Actualizar estado de botones según selección
+            self._on_table_selection_changed()
+        except Exception as e:
+            logger.error(f"Error actualizando botones de acción: {e}")
+            self._load_initial_data()  # Cargar datos iniciales para restablecer estado
     
     def _load_initial_data(self) -> None:
         """Cargar datos iniciales al iniciar la pestaña."""
@@ -674,31 +678,7 @@ class InicioTab(BaseTab):
 
             # Redirigir según vista actual
             if self.current_view == "estudiantes":
-                # Para estudiantes, mostrar el historial académico completo
-                main_window = self._get_main_window()
-                if main_window:
-                    try:
-                        from view.overlays.inscripcion_overlay import InscripcionOverlay
-                        overlay = InscripcionOverlay(main_window)
-
-                        overlay.show_form(
-                            solo_lectura=False,
-                            modo="historial",
-                            estudiante_id=registro_id,
-                            programa_id=None
-                        )
-
-                        overlay.inscripcion_creada.connect(lambda: self._on_refresh())
-                        overlay.inscripcion_actualizada.connect(lambda: self._on_refresh())
-                        overlay.overlay_closed.connect(lambda: overlay.deleteLater())
-
-                    except ImportError as e:
-                        logger.error(f"No se pudo importar InscripcionOverlay: {e}")
-                        # Fallback al método anterior
-                        self._abrir_estudiante_overlay(registro_id, "lectura")
-                else:
-                    self._abrir_estudiante_overlay(registro_id, "lectura")
-
+                self._abrir_estudiante_overlay(registro_id, "lectura")
             elif self.current_view == "docentes":
                 self._abrir_docente_overlay(registro_id, "lectura")
             elif self.current_view == "programas":
@@ -1850,7 +1830,8 @@ class InicioTab(BaseTab):
             else:
                 metodo = getattr(main_window, 'mostrar_overlay_programa', None)
                 if metodo:
-                    metodo(programa_id=programa_id, modo="lectura")
+                    # IMPORTANTE: Pasar solo_lectura=True para modo lectura
+                    metodo(programa_id=programa_id, modo="ver", solo_lectura=True)
         elif modo == "editar":
             metodo = getattr(main_window, 'mostrar_editar_programa', None)
             if metodo:
@@ -1858,7 +1839,7 @@ class InicioTab(BaseTab):
             else:
                 metodo = getattr(main_window, 'mostrar_overlay_programa', None)
                 if metodo:
-                    metodo(programa_id=programa_id, modo="editar")
+                    metodo(programa_id=programa_id, modo="editar", solo_lectura=False)
     
     def _get_main_window(self):
         """Obtener referencia a la ventana principal."""

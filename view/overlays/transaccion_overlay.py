@@ -1993,100 +1993,74 @@ class TransaccionOverlay(BaseOverlay):
         return f"{bytes:.1f} TB"
     
     def guardar_formulario(self):
-        """Guardar la transacción."""
+        """Guardar la transacción - Versión completamente corregida"""
         try:
-            # Validar formulario
+            # 1. Validar formulario
             valido, errores = self.validar_formulario()
             if not valido:
                 self.mostrar_mensaje("Errores de validación", "\n".join(errores), "error")
                 return
             
-            # Obtener datos del formulario
+            # 2. Obtener datos del formulario
             datos = self.obtener_datos()
             
-            # Generar número de transacción si no existe
-            if not datos.get('numero_transaccion') or datos['numero_transaccion'] == "(Generado automáticamente)":
-                try:
-                    # Intentar obtener la instancia del modelo
-                    from model.transaccion_model import TransaccionModel
-                    transaccion_model = TransaccionModel()
-                    
-                    # Generar número de transacción
-                    fecha_pago = self.fecha_pago_input.date().toPython()
-                    numero_transaccion = transaccion_model.generar_numero_transaccion(
-                        fecha_pago=fecha_pago,
-                        estudiante_id=self.estudiante_id,
-                        programa_id=self.programa_id,
-                        inscripcion_id=self.inscripcion_id,
-                        es_ingreso=True  # Asumimos que es ingreso
-                    )
-                    
-                    if numero_transaccion:
-                        datos['numero_transaccion'] = numero_transaccion
-                        self.numero_comprobante_input.setText(numero_transaccion)
-                        
-                except Exception as e:
-                    logger.error(f"Error generando número de transacción: {e}")
-                    # Generar número temporal
-                    from datetime import datetime
-                    fecha_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                    numero_temporal = f"TEMP-{fecha_str}"
-                    datos['numero_transaccion'] = numero_temporal
-                    self.numero_comprobante_input.setText(numero_temporal)
+            # 3. Obtener usuario actual (debería venir de sesión)
+            # Por ahora usar valor temporal - esto debería reemplazarse
+            usuario_id = self._obtener_usuario_actual()
             
-            # Obtener usuario actual (esto debería venir de la sesión)
-            # Por ahora, usar un ID temporal
-            usuario_id = 1  # ID del usuario administrador por defecto
+            # 4. Preparar detalles de manera más robusta
+            detalles = self._preparar_detalles_completos()
+            if not detalles:
+                self.mostrar_mensaje("Error", "No hay detalles válidos para guardar", "error")
+                return
+            
+            datos['detalles'] = detalles
+            
+            # 5. Calcular totales correctamente
+            subtotal = sum(det['subtotal'] for det in detalles)
+            descuento = self.descuento_input.value()
+            total = subtotal - descuento
+            
+            datos['monto_total'] = subtotal
+            datos['descuento_total'] = descuento
+            datos['monto_final'] = total
+            
+            # 6. Generar número de comprobante si no existe
+            if not datos.get('numero_comprobante') or datos['numero_comprobante'] == "(Generado automáticamente)":
+                try:
+                    fecha_pago = self.fecha_pago_input.date().toPython()
+                    datos['numero_comprobante'] = self._generar_numero_comprobante_automatico(
+                        fecha_pago, 
+                        self.forma_pago_combo.currentText()
+                    )
+                except Exception as e:
+                    logger.error(f"Error generando número de comprobante: {e}")
+                    # Número temporal
+                    datos['numero_comprobante'] = f"TEMP-{int(datetime.now().timestamp())}"
+            
+            # 7. Agregar usuario que registra
             datos['registrado_por'] = usuario_id
             
-            # Llamar al controlador para crear la transacción
+            # 8. Agregar documentos temporales
+            if self.documentos_temp:
+                datos['documentos_temp'] = self.documentos_temp
+            
+            # 9. Llamar al controlador
             from controller.transaccion_controller import TransaccionController
             controller = TransaccionController()
             
-            # Preparar datos para el controlador
-            datos_transaccion = {
-                'numero_transaccion': datos.get('numero_transaccion'),
-                'fecha_pago': datos['fecha_pago'],
-                'forma_pago': datos['forma_pago'],
-                'monto_total': float(datos['monto_total']),
-                'descuento_total': float(datos['descuento_total']),
-                'monto_final': float(datos['monto_final']),
-                'estado': datos['estado'],
-                'observaciones': datos.get('observaciones', ''),
-                'registrado_por': usuario_id
-            }
+            logger.info(f"Enviando datos al controlador: {datos}")
             
-            # Agregar IDs si existen
-            if self.estudiante_id:
-                datos_transaccion['estudiante_id'] = self.estudiante_id
-                
-            if self.programa_id:
-                datos_transaccion['programa_id'] = self.programa_id
-                
-            if self.inscripcion_id:
-                datos_transaccion['inscripcion_id'] = self.inscripcion_id
+            resultado = controller.crear_transaccion(datos, usuario_id)
             
-            # Agregar detalles
-            if 'detalles' in datos and datos['detalles']:
-                datos_transaccion['detalles'] = datos['detalles']
-            
-            # Agregar datos de transferencia si es necesario
-            if datos['forma_pago'] in ["TRANSFERENCIA", "DEPOSITO"]:
-                datos_transaccion['banco_origen'] = self.banco_origen_input.text().strip()
-                datos_transaccion['cuenta_origen'] = self.cuenta_origen_input.text().strip()
-            
-            # Llamar al controlador
-            logger.info(f"Guardando transacción con datos: {datos_transaccion}")
-            
-            resultado = controller.crear_transaccion(datos_transaccion, usuario_id)
-            
+            # 10. Manejar resultado
             if resultado.get('exito'):
-                # Emitir señal de transacción creada
+                # Emitir señal
                 self.transaccion_creada.emit({
-                    'transaccion_id': resultado.get('transaccion_id'),
-                    'numero_transaccion': datos_transaccion['numero_transaccion'],
-                    'fecha_pago': datos_transaccion['fecha_pago'],
-                    'monto_final': datos_transaccion['monto_final'],
+                    'transaccion_id': resultado['transaccion_id'],
+                    'numero_transaccion': resultado.get('numero_transaccion', datos.get('numero_comprobante')),
+                    'fecha_pago': datos['fecha_pago'],
+                    'monto_final': datos['monto_final'],
                     'estudiante_id': self.estudiante_id,
                     'programa_id': self.programa_id,
                     'inscripcion_id': self.inscripcion_id
@@ -2096,28 +2070,111 @@ class TransaccionOverlay(BaseOverlay):
                 QMessageBox.information(
                     self, 
                     "✅ Transacción Guardada",
-                    f"Transacción {datos_transaccion['numero_transaccion']} guardada exitosamente.\n"
-                    f"Monto: ${datos_transaccion['monto_final']:,.2f}"
+                    f"Transacción guardada exitosamente.\n"
+                    f"Número: {resultado.get('numero_transaccion', 'N/A')}\n"
+                    f"Monto: ${datos['monto_final']:,.2f}\n"
+                    f"Detalles: {resultado.get('detalles_insertados', 0)} conceptos"
                 )
                 
-                # Cerrar el overlay después de un breve delay
-                QTimer.singleShot(1000, self.close)
+                # Cerrar después de éxito
+                QTimer.singleShot(1500, self.close)
                 
             else:
                 mensaje_error = resultado.get('mensaje', 'Error desconocido al guardar')
                 if 'errores' in resultado:
-                    mensaje_error += f"\nErrores: {', '.join(resultado['errores'])}"
+                    mensaje_error += f"\n\nErrores:\n• " + "\n• ".join(resultado['errores'])
                 
                 QMessageBox.critical(self, "❌ Error al Guardar", mensaje_error)
                 
         except Exception as e:
-            logger.error(f"Error crítico al guardar transacción: {e}")
+            logger.error(f"Error crítico al guardar transacción: {e}", exc_info=True)
             QMessageBox.critical(
                 self, 
                 "❌ Error Crítico", 
-                f"No se pudo guardar la transacción: {str(e)}\n\n"
+                f"No se pudo guardar la transacción:\n\n{str(e)}\n\n"
                 f"Por favor, verifique los datos e intente nuevamente."
             )
+    
+    def _preparar_detalles_completos(self):
+        """Preparar detalles de manera más robusta"""
+        detalles = []
+        
+        for row in range(self.tabla_detalles.rowCount()):
+            try:
+                # Obtener widgets con verificación
+                widget_combo = self.tabla_detalles.cellWidget(row, 0)
+                widget_desc = self.tabla_detalles.cellWidget(row, 1)
+                widget_cant = self.tabla_detalles.cellWidget(row, 2)
+                widget_precio = self.tabla_detalles.cellWidget(row, 3)
+                
+                # Verificar que todos existen y son del tipo correcto
+                if not all([widget_combo, widget_desc, widget_cant, widget_precio]):
+                    logger.warning(f"Fila {row}: Widgets incompletos")
+                    continue
+                
+                if not isinstance(widget_combo, QComboBox):
+                    continue
+                
+                # Obtener ID del concepto
+                concepto_id = widget_combo.currentData()
+                if not concepto_id:
+                    logger.warning(f"Fila {row}: No hay concepto seleccionado")
+                    continue
+                
+                # Obtener valores
+                descripcion = widget_desc.text().strip() if isinstance(widget_desc, QLineEdit) else ""
+                cantidad = widget_cant.value() if isinstance(widget_cant, QDoubleSpinBox) else 1
+                precio_unitario = widget_precio.value() if isinstance(widget_precio, QDoubleSpinBox) else 0
+                
+                if cantidad <= 0 or precio_unitario <= 0:
+                    logger.warning(f"Fila {row}: Cantidad o precio inválido")
+                    continue
+                
+                subtotal = cantidad * precio_unitario
+                
+                # Crear detalle
+                detalle = {
+                    'concepto_pago_id': concepto_id,
+                    'descripcion': descripcion or widget_combo.currentText().split(' - ')[0],
+                    'cantidad': int(cantidad),
+                    'precio_unitario': float(precio_unitario),
+                    'subtotal': float(subtotal),
+                    'orden': row + 1
+                }
+                
+                detalles.append(detalle)
+                
+            except Exception as e:
+                logger.error(f"Error procesando fila {row}: {e}")
+                continue
+            
+        return detalles
+    
+    def _generar_numero_comprobante_automatico(self, fecha_pago, forma_pago):
+        """Generar número de comprobante automático"""
+        try:
+            from model.transaccion_model import TransaccionModel
+            
+            numero = TransaccionModel.generar_numero_transaccion(
+                fecha_pago=fecha_pago,
+                estudiante_id=self.estudiante_id,
+                programa_id=self.programa_id,
+                inscripcion_id=self.inscripcion_id,
+                usuario_id=self._obtener_usuario_actual(),
+                es_ingreso=True
+            )
+            
+            return numero
+        except Exception as e:
+            logger.error(f"Error generando número automático: {e}")
+            # Fallback: fecha + timestamp
+            return f"COMP-{fecha_pago.strftime('%Y%m%d')}-{int(datetime.now().timestamp())}"
+    
+    def _obtener_usuario_actual(self):
+        """Obtener ID del usuario actual - método temporal"""
+        # Esto debería obtener el usuario de la sesión
+        # Por ahora retornar 1 (admin)
+        return 1
     
     def _obtener_concepto_id_por_defecto(self) -> int:
         """

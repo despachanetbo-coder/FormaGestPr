@@ -179,19 +179,22 @@ class MainWindow(QMainWindow):
     # ===== MÉTODOS DE OVERLAYS SIMPLIFICADOS =====
     
     def _init_overlay_programa(self):
-        """Inicializar overlay de programa - REEMPLAZAR"""
+        """Inicializar overlay de programa - VERSIÓN CORREGIDA"""
         if self.overlay_programa is None:
             try:
                 from .overlays.programa_overlay import ProgramaOverlay
                 self.overlay_programa = ProgramaOverlay(self)
+
                 # Conectar señales de datos
                 self.overlay_programa.programa_guardado.connect(self._on_programa_guardado)
                 self.overlay_programa.programa_actualizado.connect(self._on_programa_actualizado)
                 self.overlay_programa.programa_eliminado.connect(self._on_programa_eliminado)
-                # Conectar señal de cierre UNA VEZ
+
+                # IMPORTANTE: Conectar señal de cierre con lambda que pasa self.overlay_programa
                 self.overlay_programa.overlay_closed.connect(
                     lambda: self._on_overlay_closed(self.overlay_programa)
                 )
+
                 print("✅ ProgramaOverlay inicializado")
             except ImportError as e:
                 print(f"❌ No se pudo importar ProgramaOverlay: {e}")
@@ -303,17 +306,22 @@ class MainWindow(QMainWindow):
         self._on_overlay_closed(overlay_widget)
     
     def close_all_overlays(self):
-        """Cerrar todos los overlays activos - REEMPLAZAR"""
+        """Cerrar todos los overlays activos - VERSIÓN CORREGIDA"""
         print(f"🔵 close_all_overlays() - {len(self.active_overlays)} overlay(s) activo(s)")
         
         # Crear lista para evitar modificar el set durante la iteración
         overlays_to_close = list(self.active_overlays)
         
         for overlay in overlays_to_close:
-            if overlay:
-                overlay.hide()
-                if overlay in self.active_overlays:
-                    self.active_overlays.remove(overlay)
+            if overlay and overlay.isVisible():
+                # Usar el método close_overlay del overlay si existe
+                if hasattr(overlay, 'close_overlay'):
+                    overlay.close_overlay()
+                else:
+                    overlay.hide()
+                
+                # Remover de active_overlays
+                self.active_overlays.discard(overlay)
         
         # Ocultar oscurecedor
         self.overlay_darkener.hide()
@@ -442,7 +450,7 @@ class MainWindow(QMainWindow):
             self.mostrar_mensaje(resultado['message'], "error")
     
     def _on_programa_guardado(self, unsxx_data: dict) -> None:
-        """Manejador cuando se guarda un nuevo programa - AHORA ABRE EN MODO LECTURA"""
+        """Manejador cuando se guarda un nuevo programa"""
         print("=" * 50)
         print("✅ _on_programa_guardado EJECUTADO en MainWindow!")
 
@@ -483,11 +491,11 @@ class MainWindow(QMainWindow):
                     "exito"
                 )
 
-                # 🔄 NUEVO: Cerrar overlay de creación actual
+                # CERRAR overlay de creación
                 if self.overlay_programa in self.active_overlays:
                     self._on_overlay_closed(self.overlay_programa)
 
-                # 🔄 NUEVO: Esperar un momento y abrir en modo lectura
+                # ABRIR en modo lectura después de un momento
                 if nuevo_programa_id:
                     QTimer.singleShot(500, lambda: self._abrir_programa_modo_lectura(nuevo_programa_id))
 
@@ -509,7 +517,7 @@ class MainWindow(QMainWindow):
         print("=" * 50)
 
     def _on_programa_actualizado(self, unsxx_data: dict) -> None:
-        """Manejador cuando se actualiza un programa existente - AHORA ABRE EN MODO LECTURA"""
+        """Manejador cuando se actualiza un programa existente"""
         print("=" * 50)
         print("✅ _on_programa_actualizado EJECUTADO en MainWindow!")
 
@@ -550,11 +558,11 @@ class MainWindow(QMainWindow):
                     "exito"
                 )
 
-                # 🔄 NUEVO: Cerrar overlay de edición actual
+                # CERRAR overlay de edición
                 if self.overlay_programa in self.active_overlays:
                     self._on_overlay_closed(self.overlay_programa)
 
-                # 🔄 NUEVO: Esperar un momento y abrir en modo lectura
+                # ABRIR en modo lectura después de un momento
                 QTimer.singleShot(500, lambda: self._abrir_programa_modo_lectura(programa_id))
 
                 # Actualizar lista en pestaña de inicio
@@ -624,7 +632,6 @@ class MainWindow(QMainWindow):
             print(f"✅ Programa obtenido: {codigo} (ID: {programa_id})")
 
             # 3. Crear NUEVO overlay para modo lectura
-            # Importar aquí para evitar dependencia circular
             try:
                 from .overlays.programa_overlay import ProgramaOverlay
             except ImportError as e:
@@ -632,26 +639,31 @@ class MainWindow(QMainWindow):
                 self.mostrar_mensaje("Error al abrir vista de programa", "error")
                 return
 
-            # Crear nuevo overlay (no reusar el de creación/edición)
+            # Crear nuevo overlay
             overlay_lectura = ProgramaOverlay(self)
 
-            # Conectar señales (importante para futuras ediciones)
+            # Conectar señales
             overlay_lectura.programa_actualizado.connect(self._on_programa_actualizado)
             overlay_lectura.programa_eliminado.connect(self._on_programa_eliminado)
 
-            # 4. Configurar overlay en modo lectura
+            # Conectar señal de cierre
+            overlay_lectura.overlay_closed.connect(
+                lambda: self._on_overlay_closed(overlay_lectura)
+            )
+
+            # 4. Configurar overlay en modo lectura - CORRECCIÓN AQUÍ
             try:
                 # Configurar título
                 overlay_lectura.set_titulo(f"🏛️ Programa Académico - {codigo}")
 
-                # Mostrar en modo lectura
+                # ¡IMPORTANTE! Usar modo="ver" y solo_lectura=True
                 overlay_lectura.show_form(
-                    solo_lectura=True,  # Esto deshabilita los campos
+                    solo_lectura=True,      # Esto bloquea los campos
                     datos=unsxx_data,
-                    modo="lectura"
+                    modo="ver"              # CAMBIADO de "lectura" a "ver"
                 )
 
-                # Opcional: Aplicar estilos específicos para modo lectura
+                # Opcional: Aplicar estilos
                 overlay_lectura.setStyleSheet(self.styleSheet())
 
                 # 5. Mostrar el overlay con oscurecimiento
@@ -728,15 +740,22 @@ class MainWindow(QMainWindow):
                     tab._on_refresh()
                 break
     
-    def mostrar_overlay_programa(self, programa_id: Optional[int] = None, modo: str = "nuevo") -> None:
+    def mostrar_overlay_programa(self, programa_id: Optional[int] = None, modo: str = "nuevo", solo_lectura: bool = False) -> None:
         """Muestra el overlay de programa"""
+
+        # Si es modo lectura, usar método específico
+        if modo == "ver" or solo_lectura:
+            if programa_id:
+                self._abrir_programa_modo_lectura(programa_id)
+            return
+
         # Inicializar overlay si no existe
         self._init_overlay_programa()
-        
+
         if not self.overlay_programa:
             self.mostrar_mensaje("Error al inicializar el overlay", "error")
             return
-        
+
         # Limpiar formulario
         try:
             self.overlay_programa.clear_form()
@@ -744,7 +763,7 @@ class MainWindow(QMainWindow):
             print("❌ Error: Método clear_form no disponible")
             self.mostrar_mensaje("Error al limpiar formulario", "error")
             return
-        
+
         # Configurar según el modo
         if programa_id is not None and modo == "editar":
             # Usar el método mejorado para obtener datos reales de la BD
@@ -755,11 +774,16 @@ class MainWindow(QMainWindow):
                 self.overlay_programa.modo = "nuevo"
                 self.overlay_programa.programa_id = None
                 self.overlay_programa.set_titulo("🏛️ Nuevo Programa Académico - UNSXX")
-                self.overlay_programa.show_form()
-                
+
+                # CORRECCIÓN: Pasar solo_lectura=False explícitamente
+                self.overlay_programa.show_form(
+                    solo_lectura=False,
+                    modo="nuevo"
+                )
+
                 # Mostrar con oscurecimiento
                 self.show_overlay(self.overlay_programa)
-                
+
             except Exception as e:
                 print(f"❌ Error al mostrar overlay: {e}")
                 self.mostrar_mensaje(f"Error al mostrar formulario: {str(e)}", "error")
