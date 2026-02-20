@@ -88,8 +88,6 @@ class ProgramaOverlay(BaseOverlay):
         
         # Aplicar estilos específicos
         self.apply_specific_styles()
-        
-        logger.debug("✅ ProgramaOverlay inicializado")
     
     def setup_ui_especifica(self):
         """Configurar la interfaz específica de programa académico"""
@@ -99,79 +97,85 @@ class ProgramaOverlay(BaseOverlay):
             widget = child.widget()
             if widget:
                 widget.deleteLater()
-        
+
         # Splitter para dos columnas
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("mainSplitter")
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(5)
-        
-        # ===== COLUMNA IZQUIERDA =====
+
+        # ===== COLUMNA IZQUIERDA (siempre visible) =====
         scroll_izquierda = QScrollArea()
         scroll_izquierda.setWidgetResizable(True)
         scroll_izquierda.setFrameShape(QFrame.Shape.NoFrame)
-        
+
         widget_izquierda = QWidget()
         layout_izquierda = QVBoxLayout(widget_izquierda)
         layout_izquierda.setContentsMargins(5, 5, 10, 5)
-        
+
         # Grupo: Identificación UNSXX
         grupo_identificacion = self.crear_grupo_identificacion()
         layout_izquierda.addWidget(grupo_identificacion)
-        
-        # Grupo: Información del Programa (con campos de la tabla)
+
+        # Grupo: Información del Programa
         grupo_programa = self.crear_grupo_programa()
         layout_izquierda.addWidget(grupo_programa)
-        
+
         # Grupo: Estructura Académica
         grupo_estructura = self.crear_grupo_estructura()
         layout_izquierda.addWidget(grupo_estructura)
-        
+
         # Grupo: Docente Coordinador
         grupo_docente = self.crear_grupo_docente()
         layout_izquierda.addWidget(grupo_docente)
-        
+
         # Grupo: Cupos y Costos
         grupo_cupos_costos = self.crear_grupo_cupos_costos()
         layout_izquierda.addWidget(grupo_cupos_costos)
-        
+
         # Grupo: Calendario Académico
         grupo_calendario = self.crear_grupo_calendario()
         layout_izquierda.addWidget(grupo_calendario)
-        
+
         layout_izquierda.addStretch()
-        
+
         scroll_izquierda.setWidget(widget_izquierda)
-        
-        # ===== COLUMNA DERECHA =====
-        widget_derecha = QWidget()
-        layout_derecha = QVBoxLayout(widget_derecha)
+        splitter.addWidget(scroll_izquierda)
+
+        # ===== COLUMNA DERECHA (solo visible en modo edición/visualización) =====
+        self.widget_derecha = QWidget()
+        layout_derecha = QVBoxLayout(self.widget_derecha)
         layout_derecha.setContentsMargins(10, 5, 5, 5)
-        
+
         # Grupo: Resumen del Programa
         grupo_resumen = self.crear_grupo_resumen()
         layout_derecha.addWidget(grupo_resumen)
+
+        scroll_derecha = QScrollArea()
+        scroll_derecha.setWidgetResizable(True)
         
+
         # Pestañas para estudiantes y pagos
         tab_widget = QTabWidget()
-        
+        tab_widget.setMinimumHeight(400)
+
         # Pestaña 1: Estudiantes inscritos
         tab_estudiantes = self.crear_tab_estudiantes()
         tab_widget.addTab(tab_estudiantes, "👥 Estudiantes")
-        
+
         # Pestaña 2: Resumen de Pagos
         tab_pagos = self.crear_tab_pagos()
         tab_widget.addTab(tab_pagos, "💵 Pagos")
-        
-        layout_derecha.addWidget(tab_widget, 1)
-        
-        # Agregar al splitter
-        splitter.addWidget(scroll_izquierda)
-        splitter.addWidget(widget_derecha)
-        
+
+        scroll_derecha.setWidget(tab_widget)
+
+        layout_derecha.addWidget(scroll_derecha, 1)
+
+        splitter.addWidget(self.widget_derecha)
+
         # Configurar proporciones
         splitter.setSizes([500, 500])
-        
+
         # Agregar splitter al layout de contenido
         self.content_layout.addWidget(splitter, 1)
     
@@ -179,145 +183,142 @@ class ProgramaOverlay(BaseOverlay):
         """Crear grupo de identificación UNSXX"""
         grupo = QGroupBox("🏛️ IDENTIFICACIÓN UNSXX")
         grupo.setObjectName("grupoIdentificacion")
-        
+
         layout = QVBoxLayout(grupo)
         layout.setContentsMargins(12, 20, 12, 15)
         layout.setSpacing(12)
-        
-        # Código único (campo de la tabla)
-        codigo_container = QVBoxLayout()
+
+        # === PRIMERA FILA: Código UNSXX ===
+        codigo_fila = QHBoxLayout()
+
         codigo_label = QLabel("Código UNSXX:*")
         codigo_label.setProperty("class", "labelObligatorio")
-        codigo_container.addWidget(codigo_label)
-        
+        codigo_label.setFixedWidth(120)
+        codigo_fila.addWidget(codigo_label)
+
         self.codigo_generado_label = QLabel("Seleccione nivel y carrera")
-        self.codigo_generado_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.codigo_generado_label.setMinimumHeight(40)
+        self.codigo_generado_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.codigo_generado_label.setMinimumHeight(30)
         self.codigo_generado_label.setObjectName("codigoGeneradoLabel")
-        codigo_container.addWidget(self.codigo_generado_label)
-        
+        self.codigo_generado_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        codigo_fila.addWidget(self.codigo_generado_label, 1)
+
         # Campo oculto para el código
         self.codigo_hidden = QLineEdit()
         self.codigo_hidden.setVisible(False)
-        codigo_container.addWidget(self.codigo_hidden)
-        
-        layout.addLayout(codigo_container)
-        
-        # Nivel y Carrera
-        nivel_carrera_layout = QHBoxLayout()
-        
+        codigo_fila.addWidget(self.codigo_hidden)
+
+        layout.addLayout(codigo_fila)
+
+        # === SEGUNDA FILA: Nivel Académico y Carrera/Programa ===
+        fila_nivel_carrera = QHBoxLayout()
+
         # Nivel Académico
-        nivel_container = QVBoxLayout()
         nivel_label = QLabel("Nivel Académico:*")
         nivel_label.setProperty("class", "labelObligatorio")
-        nivel_container.addWidget(nivel_label)
-        
+        nivel_label.setFixedWidth(120)
+        fila_nivel_carrera.addWidget(nivel_label)
+
         self.nivel_combo = QComboBox()
         self.nivel_combo.addItems(list(self.NIVELES_ACADEMICOS.keys()))
         self.nivel_combo.currentTextChanged.connect(self._on_nivel_cambiado)
-        nivel_container.addWidget(self.nivel_combo)
-        nivel_carrera_layout.addLayout(nivel_container)
-        
+        self.nivel_combo.setMinimumWidth(200)
+        fila_nivel_carrera.addWidget(self.nivel_combo)
+
+        # Espacio entre campos
+        fila_nivel_carrera.addSpacing(20)
+
         # Carrera/Programa
-        carrera_container = QVBoxLayout()
         carrera_label = QLabel("Carrera/Programa:*")
         carrera_label.setProperty("class", "labelObligatorio")
-        carrera_container.addWidget(carrera_label)
-        
+        carrera_label.setFixedWidth(120)
+        fila_nivel_carrera.addWidget(carrera_label)
+
         self.carrera_combo = QComboBox()
         for nombre, abrev in self.CARRERAS_UNSXX:
             self.carrera_combo.addItem(nombre, abrev)
         self.carrera_combo.currentIndexChanged.connect(self._actualizar_codigo)
-        carrera_container.addWidget(self.carrera_combo)
-        nivel_carrera_layout.addLayout(carrera_container)
-        
-        layout.addLayout(nivel_carrera_layout)
-        
-        # Año y Versión
-        año_version_layout = QHBoxLayout()
-        
-        # Año
-        año_container = QVBoxLayout()
+        self.carrera_combo.setMinimumWidth(200)
+        fila_nivel_carrera.addWidget(self.carrera_combo)
+
+        fila_nivel_carrera.addStretch()
+        layout.addLayout(fila_nivel_carrera)
+
+        # === TERCERA FILA: Año Académico y Versión ===
+        fila_año_version = QHBoxLayout()
+
+        # Año Académico
         año_label = QLabel("Año Académico:*")
         año_label.setProperty("class", "labelObligatorio")
-        año_container.addWidget(año_label)
-        
+        año_label.setFixedWidth(120)
+        fila_año_version.addWidget(año_label)
+
         self.año_input = QLineEdit()
         self.año_input.setText(str(QDate.currentDate().year()))
         self.año_input.textChanged.connect(self._actualizar_codigo)
         validator_año = QIntValidator(2000, 2100, self)
         self.año_input.setValidator(validator_año)
-        año_container.addWidget(self.año_input)
-        año_version_layout.addLayout(año_container)
-        
-        # Versión - Cambiado a QComboBox con números romanos
-        version_container = QVBoxLayout()
+        self.año_input.setFixedWidth(100)
+        fila_año_version.addWidget(self.año_input)
+
+        # Espacio entre campos
+        fila_año_version.addSpacing(20)
+
+        # Versión
         version_label = QLabel("Versión:")
-        version_container.addWidget(version_label)
-        
+        version_label.setFixedWidth(120)
+        fila_año_version.addWidget(version_label)
+
         self.version_combo = QComboBox()
         self.version_combo.addItems(self.NUMEROS_ROMANOS)
         self.version_combo.setCurrentIndex(0)
-        self.version_combo.currentIndexChanged.connect(self._actualizar_version_romana)
-        version_container.addWidget(self.version_combo)
-        año_version_layout.addLayout(version_container)
-        
-        layout.addLayout(año_version_layout)
-        
+        self.version_combo.currentIndexChanged.connect(self._on_version_cambiado)
+        self.version_combo.setFixedWidth(100)
+        fila_año_version.addWidget(self.version_combo)
+
+        fila_año_version.addStretch()
+        layout.addLayout(fila_año_version)
+
         return grupo
-    
+
     def crear_grupo_programa(self):
         """Crear grupo de información del programa con campos de la tabla"""
         grupo = QGroupBox("📚 INFORMACIÓN DEL PROGRAMA")
-        
+
         layout = QVBoxLayout(grupo)
         layout.setContentsMargins(12, 20, 12, 15)
         layout.setSpacing(12)
-        
-        # Nombre oficial (campo de la tabla)
-        nombre_container = QVBoxLayout()
+
+        # === PRIMERA FILA: Nombre Oficial ===
+        fila_nombre = QHBoxLayout()
+
         nombre_label = QLabel("Nombre Oficial:*")
         nombre_label.setProperty("class", "labelObligatorio")
-        nombre_container.addWidget(nombre_label)
-        
-        nombre_hbox = QHBoxLayout()
-        self.nombre_checkbox = QCheckBox("Habilitar nombre personalizado")
-        self.nombre_checkbox.setChecked(True)
-        
+        nombre_label.setFixedWidth(120)
+        fila_nombre.addWidget(nombre_label)
+
         self.nombre_input = QLineEdit()
         self.nombre_input.setPlaceholderText("Ej: Maestría en Enfermería - Modalidad Virtual UNSXX")
-        nombre_hbox.addWidget(self.nombre_checkbox)
-        nombre_hbox.addWidget(self.nombre_input, 1)
-        
-        nombre_container.addLayout(nombre_hbox)
-        layout.addLayout(nombre_container)
-        
-        # Descripción con control de modo (campo de la tabla)
-        desc_container = QVBoxLayout()
-        desc_header = QHBoxLayout()
-        
+        self.nombre_input.textChanged.connect(self._actualizar_descripcion)
+        fila_nombre.addWidget(self.nombre_input, 1)
+
+        layout.addLayout(fila_nombre)
+
+        # === SEGUNDA FILA: Descripción del Programa ===
+        fila_descripcion = QHBoxLayout()
+
         desc_label = QLabel("Descripción del Programa:")
-        desc_header.addWidget(desc_label)
-        
-        # Botón para controlar modo automático/manual
-        self.btn_modo_descripcion = QPushButton("🔄 Auto")
-        self.btn_modo_descripcion.setCheckable(True)
-        self.btn_modo_descripcion.setChecked(True)
-        self.btn_modo_descripcion.setToolTip("Alternar entre generación automática y edición manual")
-        self.btn_modo_descripcion.setFixedWidth(80)
-        self.btn_modo_descripcion.clicked.connect(self._alternar_modo_descripcion)
-        desc_header.addWidget(self.btn_modo_descripcion)
-        
-        desc_header.addStretch()
-        desc_container.addLayout(desc_header)
-        
-        # Descripción como QLineEdit
+        desc_label.setFixedWidth(120)
+        fila_descripcion.addWidget(desc_label)
+
         self.descripcion_input = QLineEdit()
         self.descripcion_input.setPlaceholderText("La descripción se genera automáticamente...")
         self.descripcion_input.setMaximumHeight(35)
-        desc_container.addWidget(self.descripcion_input)
-        layout.addLayout(desc_container)
-        
+        self.descripcion_input.setReadOnly(True)  # Solo lectura para que sea automática
+        fila_descripcion.addWidget(self.descripcion_input, 1)
+
+        layout.addLayout(fila_descripcion)
+
         return grupo
     
     def crear_grupo_estructura(self):
@@ -356,18 +357,26 @@ class ProgramaOverlay(BaseOverlay):
     def crear_grupo_docente(self):
         """Crear grupo de docente coordinador (campo de la tabla)"""
         grupo = QGroupBox("👨‍🏫 DOCENTE COORDINADOR")
-        
+
         layout = QVBoxLayout(grupo)
         layout.setContentsMargins(12, 20, 12, 15)
         layout.setSpacing(12)
-        
+
+        # === FILA: Docente Coordinador y ComboBox ===
+        fila_docente = QHBoxLayout()
+
         docente_label = QLabel("Docente Coordinador:")
-        layout.addWidget(docente_label)
-        
+        docente_label.setFixedWidth(120)  # Mismo ancho que los otros labels
+        fila_docente.addWidget(docente_label)
+
         self.docente_coordinador_combo = QComboBox()
         self.docente_coordinador_combo.addItem("-- Seleccionar Docente --", None)
-        layout.addWidget(self.docente_coordinador_combo)
-        
+        fila_docente.addWidget(self.docente_coordinador_combo, 1)  # El 1 permite que se expanda
+
+        fila_docente.addStretch()
+
+        layout.addLayout(fila_docente)
+
         return grupo
     
     def crear_grupo_cupos_costos(self):
@@ -434,7 +443,7 @@ class ProgramaOverlay(BaseOverlay):
         
         # Fila 4: Costo por cuota (calculado, campo de la tabla)
         grid.addWidget(QLabel("Costo mensualidad:*"), 3, 0)
-        self.costo_cuota_label = QLabel("$500.00")
+        self.costo_cuota_label = QLabel("Bs. 500.00")
         self.costo_cuota_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.costo_cuota_label.setProperty("class", "costoMensualidad")
         grid.addWidget(self.costo_cuota_label, 3, 1, 1, 3)
@@ -444,100 +453,147 @@ class ProgramaOverlay(BaseOverlay):
     def crear_grupo_calendario(self):
         """Crear grupo de calendario académico (campos de la tabla)"""
         grupo = QGroupBox("📅 CALENDARIO ACADÉMICO")
-        
+
         layout = QHBoxLayout(grupo)
         layout.setContentsMargins(12, 20, 12, 15)
-        layout.setSpacing(12)
-        
-        # Fecha inicio (campo de la tabla)
+        layout.setSpacing(20)  # Espacio entre los dos campos
+
+        # === Fecha Inicio (con label arriba) ===
         fecha_inicio_container = QVBoxLayout()
+        fecha_inicio_container.setSpacing(5)
+
         fecha_inicio_label = QLabel("Fecha inicio:*")
         fecha_inicio_label.setProperty("class", "labelObligatorio")
         fecha_inicio_container.addWidget(fecha_inicio_label)
-        
+
         self.fecha_inicio_input = QDateEdit()
         self.fecha_inicio_input.setCalendarPopup(True)
         self.fecha_inicio_input.setDate(QDate.currentDate().addDays(60))
         self.fecha_inicio_input.dateChanged.connect(self._actualizar_fecha_fin)
+        self.fecha_inicio_input.setMinimumWidth(150)
         fecha_inicio_container.addWidget(self.fecha_inicio_input)
-        
-        # Fecha fin (campo de la tabla)
+
+        layout.addLayout(fecha_inicio_container)
+
+        # === Fecha Fin (con label arriba) ===
         fecha_fin_container = QVBoxLayout()
-        fecha_fin_container.addWidget(QLabel("Fecha fin estimada:"))
-        
+        fecha_fin_container.setSpacing(5)
+
+        fecha_fin_label = QLabel("Fecha fin estimada:")
+        fecha_fin_container.addWidget(fecha_fin_label)
+
         self.fecha_fin_input = QDateEdit()
         self.fecha_fin_input.setCalendarPopup(True)
         self.fecha_fin_input.setDate(QDate.currentDate().addDays(60 + 730))
+        self.fecha_fin_input.setMinimumWidth(150)
         fecha_fin_container.addWidget(self.fecha_fin_input)
-        
-        layout.addLayout(fecha_inicio_container, 1)
-        layout.addLayout(fecha_fin_container, 1)
-        
+
+        layout.addLayout(fecha_fin_container)
+
+        layout.addStretch()  # Para mantener los campos alineados a la izquierda
+
         return grupo
     
     def crear_grupo_resumen(self):
         """Crear grupo de resumen del programa"""
         grupo = QGroupBox("📊 RESUMEN DEL PROGRAMA")
-        
+
         grid = QGridLayout(grupo)
         grid.setContentsMargins(12, 20, 12, 15)
         grid.setSpacing(12)
-        
-        # Fila 1
-        self.lbl_cupos_disponibles = QLabel("Cupos disponibles: 30")
+
+        # Fila 1 - Cupos
+        self.lbl_cupos_disponibles = QLabel("Cupos disponibles: 0")
         self.lbl_cupos_disponibles.setProperty("class", "labelEstadistica")
         grid.addWidget(self.lbl_cupos_disponibles, 0, 0)
-        
-        self.lbl_porcentaje_ocupacion = QLabel("Ocupación: 0%")
+
+        self.lbl_porcentaje_ocupacion = QLabel("Ocupación: 0.00%")
         self.lbl_porcentaje_ocupacion.setProperty("class", "labelEstadistica")
         grid.addWidget(self.lbl_porcentaje_ocupacion, 0, 1)
-        
-        # Fila 2
-        self.lbl_ingresos_estimados = QLabel("Ingresos estimados: $0.00")
+
+        # Fila 2 - Ingresos Estimados Totales
+        self.lbl_ingresos_estimados = QLabel("Ingresos estimados: 0 Bs.")
         self.lbl_ingresos_estimados.setProperty("class", "labelEstadistica")
-        grid.addWidget(self.lbl_ingresos_estimados, 1, 0)
-        
-        self.lbl_ingresos_reales = QLabel("Ingresos reales: $0.00")
+        grid.addWidget(self.lbl_ingresos_estimados, 1, 0, 1, 2)
+
+        # Fila 3 - Detalle de Estimados
+        self.lbl_estimado_matricula = QLabel("Estimado por Matrícula: 0 Bs.")
+        self.lbl_estimado_matricula.setProperty("class", "labelEstadistica")
+        grid.addWidget(self.lbl_estimado_matricula, 2, 0)
+
+        self.lbl_estimado_inscripcion = QLabel("Estimado por Inscripción: 0 Bs.")
+        self.lbl_estimado_inscripcion.setProperty("class", "labelEstadistica")
+        grid.addWidget(self.lbl_estimado_inscripcion, 2, 1)
+
+        # Fila 4 - Ingresos Reales Totales
+        self.lbl_ingresos_reales = QLabel("Ingresos reales: 0 Bs.")
         self.lbl_ingresos_reales.setProperty("class", "labelEstadistica")
-        grid.addWidget(self.lbl_ingresos_reales, 1, 1)
-        
-        # Fila 3
-        self.lbl_saldo_pendiente = QLabel("Saldo pendiente: $0.00")
+        self.lbl_ingresos_reales.setStyleSheet("font-weight: bold; color: #27ae60;")
+        grid.addWidget(self.lbl_ingresos_reales, 3, 0, 1, 2)
+
+        # Fila 5 - Detalle de Reales
+        self.lbl_real_matricula = QLabel("Real Matrícula: 0 Bs.")
+        self.lbl_real_matricula.setProperty("class", "labelEstadistica")
+        grid.addWidget(self.lbl_real_matricula, 4, 0)
+
+        self.lbl_real_inscripcion = QLabel("Real Inscripción: 0 Bs.")
+        self.lbl_real_inscripcion.setProperty("class", "labelEstadistica")
+        grid.addWidget(self.lbl_real_inscripcion, 4, 1)
+
+        # Fila 6 - Saldo Pendiente
+        self.lbl_saldo_pendiente = QLabel("Saldo pendiente: 0 Bs.")
         self.lbl_saldo_pendiente.setProperty("class", "labelEstadistica")
-        grid.addWidget(self.lbl_saldo_pendiente, 2, 0, 1, 2)
-        
+        self.lbl_saldo_pendiente.setStyleSheet("font-weight: bold; color: #e74c3c;")
+        grid.addWidget(self.lbl_saldo_pendiente, 5, 0, 1, 2)
+
         return grupo
     
     def crear_tab_estudiantes(self):
         """Crear pestaña de estudiantes inscritos"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        
+
         # Tabla de estudiantes
         self.tabla_estudiantes = QTableWidget()
-        self.tabla_estudiantes.setColumnCount(5)
+        self.tabla_estudiantes.setColumnCount(6)
         self.tabla_estudiantes.setHorizontalHeaderLabels([
-            "ID", "Estudiante", "Fecha Inscripción", "Estado", "Observaciones"
+            "ID", "Estudiante", "Fecha Inscripción", "Estado", "Observaciones", "Acciones"
         ])
-        self.tabla_estudiantes.horizontalHeader().setStretchLastSection(True)
+        self.tabla_estudiantes.horizontalHeader().setStretchLastSection(False)
         self.tabla_estudiantes.setAlternatingRowColors(True)
-        
+        self.tabla_estudiantes.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
         layout.addWidget(self.tabla_estudiantes, 1)
-        
+
         # Botones
         botones_layout = QHBoxLayout()
         btn_refrescar = QPushButton("🔄 Actualizar")
         btn_refrescar.clicked.connect(self._actualizar_lista_estudiantes)
-        
+        btn_refrescar.setFixedHeight(35)
+
         btn_inscribir = QPushButton("➕ Inscribir Estudiante")
+        # IMPORTANTE: Verificar que esta conexión existe
         btn_inscribir.clicked.connect(self._inscribir_estudiante)
-        
+        btn_inscribir.setFixedHeight(35)
+        btn_inscribir.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+        """)
+
         botones_layout.addWidget(btn_refrescar)
         botones_layout.addStretch()
         botones_layout.addWidget(btn_inscribir)
-        
+
         layout.addLayout(botones_layout)
-        
+
         return tab
     
     def crear_tab_pagos(self):
@@ -559,12 +615,13 @@ class ProgramaOverlay(BaseOverlay):
         
         # Totales generales
         grupo_totales = QGroupBox("💰 TOTALES GENERALES")
+        grupo_totales.setStyleSheet("Margin-top: 8px; padding: 5px;")
         grid_totales = QGridLayout(grupo_totales)
         
-        self.lbl_total_matriculas = QLabel("Total matrículas: $0.00")
-        self.lbl_total_inscripciones = QLabel("Total inscripciones: $0.00")
-        self.lbl_total_cuotas = QLabel("Total cuotas: $0.00")
-        self.lbl_total_general = QLabel("TOTAL INGRESOS: $0.00")
+        self.lbl_total_matriculas = QLabel("Total matrículas: Bs. 0.00")
+        self.lbl_total_inscripciones = QLabel("Total inscripciones: Bs. 0.00")
+        self.lbl_total_cuotas = QLabel("Total cuotas: Bs. 0.00")
+        self.lbl_total_general = QLabel("TOTAL INGRESOS: Bs. 0.00")
         self.lbl_total_general.setProperty("class", "labelTotalGeneral")
         
         grid_totales.addWidget(self.lbl_total_matriculas, 0, 0)
@@ -588,11 +645,8 @@ class ProgramaOverlay(BaseOverlay):
         # Conectar señales para actualización de descripción
         self.nivel_combo.currentTextChanged.connect(self._actualizar_descripcion)
         self.nombre_input.textChanged.connect(self._actualizar_descripcion)
-        self.version_combo.currentTextChanged.connect(self._actualizar_descripcion)
         self.carrera_combo.currentTextChanged.connect(self._actualizar_descripcion)
-        
-        # Conectar para detección de edición manual
-        self.descripcion_input.textChanged.connect(self._on_descripcion_editada)
+        # La versión ya tiene su propia conexión en _on_version_cambiado
         
         # Conectar botón guardar al método on_guardar
         if hasattr(self, 'btn_guardar'):
@@ -643,12 +697,12 @@ class ProgramaOverlay(BaseOverlay):
         }
         
         /* 🌊 IDENTIFICACIÓN UNSXX - Azul vibrante */
-        QGroupBox[title="🏛️ IDENTIFICACIÓN UNSXX"] {
+        QGroupBox#grupoIdentificacion {
             border-color: #3498db;
             background-color: #ebf5fb;
         }
         
-        QGroupBox[title="🏛️ IDENTIFICACIÓN UNSXX"]::title {
+        QGroupBox#grupoIdentificacion::title {
             background-color: #2980b9;
         }
         
@@ -754,16 +808,10 @@ class ProgramaOverlay(BaseOverlay):
         self._actualizar_codigo()
         self._actualizar_descripcion()
     
-    def _actualizar_version_romana(self):
-        """Actualizar etiqueta de versión romana - ahora usa QComboBox"""
-        try:
-            version_romana = self.version_combo.currentText()
-            self._actualizar_codigo()
-            self._actualizar_descripcion()
-            return version_romana
-        except Exception as e:
-            logger.error(f"Error actualizando versión romana: {e}")
-            return "I"
+    def _on_version_cambiado(self):
+        """Manejador cuando cambia la versión - actualiza código y descripción"""
+        self._actualizar_codigo()
+        self._actualizar_descripcion()
     
     def _actualizar_codigo(self):
         """Actualizar código UNSXX generado"""
@@ -805,10 +853,6 @@ class ProgramaOverlay(BaseOverlay):
     def _actualizar_descripcion(self, forzar_actualizacion=False):
         """Actualizar automáticamente la descripción del programa"""
         try:
-            # Si la descripción fue editada manualmente y no forzamos actualización, no hacer nada
-            if not self.descripcion_automatica and not forzar_actualizacion and not self.primer_cambio:
-                return
-                
             # Obtener valores actuales
             nivel = self.nivel_combo.currentText()
             carrera = self.carrera_combo.currentText()
@@ -821,23 +865,12 @@ class ProgramaOverlay(BaseOverlay):
                     self.descripcion_input.setText("Seleccione un nivel académico")
                 return
             
-            # Obtener la descripción actual para comparar
-            descripcion_actual = self.descripcion_input.text()
-            
             # Construir nueva descripción
             nueva_descripcion = self._generar_descripcion_automatica(nivel, carrera, nombre, version_romana)
             
             # Solo actualizar si es diferente de la actual
-            if nueva_descripcion != descripcion_actual:
-                # Guardar posición del cursor si hay foco
-                cursor = self.descripcion_input.cursorPosition()
-                
+            if nueva_descripcion != self.descripcion_input.text():
                 self.descripcion_input.setText(nueva_descripcion)
-                
-                # Restaurar posición del cursor si estaba editando
-                if cursor > 0:
-                    new_pos = min(cursor, len(nueva_descripcion))
-                    self.descripcion_input.setCursorPosition(new_pos)
             
             # Marcar que ya hubo un cambio
             self.primer_cambio = False
@@ -851,46 +884,25 @@ class ProgramaOverlay(BaseOverlay):
         # Caso 1: Solo nivel (sin nombre)
         if not nombre or nombre.isspace():
             if carrera and carrera != "-- Seleccionar --":
-                return f"{nivel} en {carrera}: "
+                return f"{nivel} en {carrera}"
             else:
-                return f"{nivel}: "
+                return f"{nivel}"
         
         # Caso 2: Con nombre completo
         nivel_lower = nivel.lower()
         nombre_lower = nombre.lower()
         
+        # Verificar si la versión no es la predeterminada (I)
+        sufijo_version = ""
+        if version_romana and version_romana != "I":
+            sufijo_version = f" {version_romana} Versión"
+        
         if nivel_lower in nombre_lower:
             # El nivel ya está incluido, no duplicar
-            if version_romana and version_romana != "I":
-                return f"{nombre} - {version_romana} Versión"
-            else:
-                return nombre
+            return f"{nombre}{sufijo_version}"
         else:
             # Nivel no incluido, agregarlo
-            if version_romana and version_romana != "I":
-                return f"{nivel} en: {nombre} - {version_romana} Versión"
-            else:
-                return f"{nivel} en: {nombre}"
-    
-    def _alternar_modo_descripcion(self):
-        """Alternar entre modo automático y manual de descripción"""
-        if self.btn_modo_descripcion.isChecked():
-            # Modo automático
-            self.descripcion_automatica = True
-            self.btn_modo_descripcion.setText("🔄 Auto")
-            self._actualizar_descripcion(forzar_actualizacion=True)
-        else:
-            # Modo manual
-            self.descripcion_automatica = False
-            self.btn_modo_descripcion.setText("✏️ Manual")
-    
-    def _on_descripcion_editada(self):
-        """Manejador cuando el usuario edita manualmente la descripción"""
-        # Si el usuario comienza a editar manualmente, desactivar generación automática
-        if self.descripcion_input.hasFocus():
-            self.descripcion_automatica = False
-            self.btn_modo_descripcion.setChecked(False)
-            self.btn_modo_descripcion.setText("✏️ Manual")
+            return f"{nivel} en: {nombre}{sufijo_version}"
     
     def _mapear_estado_a_db(self, estado_form):
         """Mapear el estado del formulario a valores válidos de la base de datos"""
@@ -958,63 +970,162 @@ class ProgramaOverlay(BaseOverlay):
             
             if numero_cuotas > 0:
                 costo_cuota = costo_total / numero_cuotas
-                self.costo_cuota_label.setText(f"${costo_cuota:,.2f}")
+                self.costo_cuota_label.setText(f"Bs. {costo_cuota:,.2f}")
         except:
-            self.costo_cuota_label.setText("$0.00")
+            self.costo_cuota_label.setText("Bs. 0.00")
     
     def _actualizar_estadisticas(self):
-        """Actualizar estadísticas del programa"""
+        """Actualizar estadísticas del programa con cálculos mejorados"""
         try:
+            # Verificar si tenemos un ID de programa válido
+            if not self.programa_id:
+                return
+
             # Obtener valores de los campos
             cupos_max_text = self.cupos_max_input.text().strip()
             cupos_inscritos_text = self.cupos_inscritos_input.text().strip()
             costo_total_text = self.costo_total_input.text().strip()
             costo_matricula_text = self.costo_matricula_input.text().strip()
             costo_inscripcion_text = self.costo_inscripcion_input.text().strip()
-            
+
             # Convertir valores
-            cupos_max = int(cupos_max_text) if cupos_max_text else 30
+            cupos_max = int(cupos_max_text) if cupos_max_text else 0
             cupos_inscritos = int(cupos_inscritos_text) if cupos_inscritos_text else 0
-            costo_total = float(costo_total_text) if costo_total_text else 5000.00
-            costo_matricula = float(costo_matricula_text) if costo_matricula_text else 200.00
-            costo_inscripcion = float(costo_inscripcion_text) if costo_inscripcion_text else 50.00
-            
-            # Calcular cupos disponibles
+            costo_total = float(costo_total_text) if costo_total_text else 0.0
+            costo_matricula = float(costo_matricula_text) if costo_matricula_text else 0.0
+            costo_inscripcion = float(costo_inscripcion_text) if costo_inscripcion_text else 0.0
+
+            # Calcular cupos disponibles y ocupación
             cupos_disponibles = max(0, cupos_max - cupos_inscritos)
             porcentaje_ocupacion = (cupos_inscritos / cupos_max * 100) if cupos_max > 0 else 0
-            
-            # Calcular ingresos estimados y reales
-            ingresos_estimados = cupos_max * costo_total
-            ingresos_reales = cupos_inscritos * (costo_matricula + costo_inscripcion)
-            saldo_pendiente = (cupos_inscritos * costo_total) - ingresos_reales
-            
-            # Actualizar labels
+
+            # Calcular ingresos estimados
+            ingresos_estimados_totales = cupos_inscritos * costo_total
+            estimado_matricula = cupos_inscritos * costo_matricula
+            estimado_inscripcion = cupos_inscritos * costo_inscripcion
+
+            # Obtener ingresos reales desde la base de datos usando TransaccionModel
+            ingresos_reales_totales = 0.0
+            real_matricula = 0.0
+            real_inscripcion = 0.0
+            real_mensualidades = 0.0
+
+            if self.programa_id:
+                try:
+                    from model.transaccion_model import TransaccionModel
+
+                    # Obtener todos los totales reales de una sola vez
+                    totales = TransaccionModel.obtener_totales_reales_programa(self.programa_id)
+
+                    real_matricula = totales['matricula']
+                    real_inscripcion = totales['inscripcion']
+                    real_mensualidades = totales['mensualidad']
+                    ingresos_reales_totales = totales['total']
+                except Exception as e:
+                    logger.error(f"Error obteniendo ingresos reales: {e}")
+                    # En caso de error, no actualizar los valores reales
+                    pass
+                
+            # Calcular saldo pendiente
+            saldo_pendiente = ingresos_estimados_totales - ingresos_reales_totales
+
+            # Actualizar labels con formato Bs.
             self.lbl_cupos_disponibles.setText(f"Cupos disponibles: {cupos_disponibles}")
-            self.lbl_porcentaje_ocupacion.setText(f"Ocupación: {porcentaje_ocupacion:.1f}%")
-            self.lbl_ingresos_estimados.setText(f"Ingresos estimados: ${ingresos_estimados:,.2f}")
-            self.lbl_ingresos_reales.setText(f"Ingresos reales: ${ingresos_reales:,.2f}")
-            self.lbl_saldo_pendiente.setText(f"Saldo pendiente: ${saldo_pendiente:,.2f}")
-            
+            self.lbl_porcentaje_ocupacion.setText(f"Ocupación: {porcentaje_ocupacion:.2f}%")
+
+            self.lbl_ingresos_estimados.setText(f"Ingresos estimados: {ingresos_estimados_totales:,.2f} Bs.")
+            self.lbl_estimado_matricula.setText(f"Estimado por Matrícula: {estimado_matricula:,.2f} Bs.")
+            self.lbl_estimado_inscripcion.setText(f"Estimado por Inscripción: {estimado_inscripcion:,.2f} Bs.")
+
+            self.lbl_ingresos_reales.setText(f"Ingresos reales: {ingresos_reales_totales:,.2f} Bs.")
+            self.lbl_real_matricula.setText(f"Real Matrícula: {real_matricula:,.2f} Bs.")
+            self.lbl_real_inscripcion.setText(f"Real Inscripción: {real_inscripcion:,.2f} Bs.")
+
+            self.lbl_saldo_pendiente.setText(f"Saldo pendiente: {saldo_pendiente:,.2f} Bs.")
+
         except Exception as e:
             logger.error(f"Error actualizando estadísticas: {e}")
     
     def _actualizar_lista_estudiantes(self):
         """Actualizar lista de estudiantes (simulada)"""
-        self.tabla_estudiantes.setRowCount(0)
-        # Datos de ejemplo
-        pass
+        self._cargar_estudiantes_inscritos()
     
     def _inscribir_estudiante(self):
-        """Mostrar diálogo para inscribir estudiante"""
-        self.mostrar_mensaje("Inscribir Estudiante", 
-                            "Esta función abriría un diálogo para inscribir un nuevo estudiante.", 
-                            "info")
+        """Abrir diálogo para inscribir estudiante al programa actual"""
+        if not self.programa_id:
+            QMessageBox.warning(self, "Error", "Debe guardar el programa primero antes de inscribir estudiantes")
+            return
+
+        try:
+            from view.overlays.inscripcion_overlay import InscripcionOverlay
+
+            # Crear el overlay
+            inscripcion_overlay = InscripcionOverlay(self)
+
+            # Conectar señales
+            inscripcion_overlay.inscripcion_creada.connect(self._on_inscripcion_guardada)
+
+            # Mostrar el overlay
+            inscripcion_overlay.show_form(
+                solo_lectura=False,
+                modo="nuevo",
+                programa_id=self.programa_id
+            )
+
+        except ImportError as e:
+            logger.error(f"Error importando InscripcionOverlay: {e}")
+            QMessageBox.critical(self, "Error de Importación", 
+                                f"No se pudo importar el módulo de inscripción:\n{str(e)}")
+        except Exception as e:
+            logger.error(f"Error inesperado abriendo inscripción: {e}")
+            QMessageBox.critical(self, "Error Inesperado", 
+                                f"Error al abrir inscripción:\n{str(e)}")
+    
+    def _on_inscripcion_guardada(self, datos_inscripcion):
+        """Manejador cuando se guarda una nueva inscripción"""
+        # Verificar que la inscripción corresponde a este programa
+        # El ID del programa puede venir en diferentes formatos
+        programa_id_inscripcion = None
+
+        if isinstance(datos_inscripcion, dict):
+            # Si viene como diccionario plano
+            programa_id_inscripcion = datos_inscripcion.get('programa_id')
+
+            # Si viene anidado en 'data'
+            if not programa_id_inscripcion and 'data' in datos_inscripcion:
+                programa_id_inscripcion = datos_inscripcion['data'].get('programa_id')
+
+        if programa_id_inscripcion == self.programa_id:
+            try:
+                from model.inscripcion_model import InscripcionModel
+
+                # Obtener conteo actualizado de inscripciones
+                inscripciones = InscripcionModel.obtener_inscripciones_por_programa(self.programa_id)
+
+                if inscripciones is not None:
+                    # Actualizar cupos inscritos
+                    cupos_actuales = len(inscripciones)
+                    self.cupos_inscritos_input.setText(str(cupos_actuales))
+
+                    # Recargar tabla de estudiantes
+                    self._cargar_estudiantes_inscritos()
+
+                    # Actualizar estadísticas
+                    self._actualizar_estadisticas()
+
+                    # Mostrar mensaje de confirmación
+                    QMessageBox.information(self, "✅ Éxito", 
+                        f"Estudiante inscrito exitosamente.\n\n"
+                        f"Cupos actuales: {cupos_actuales}")
+                else:
+                    logger.warning("No se pudo obtener el conteo de inscripciones")
+
+            except Exception as e:
+                logger.error(f"Error actualizando cupos después de inscripción: {e}")
     
     def _actualizar_resumen_pagos(self):
         """Actualizar resumen de pagos (simulado)"""
         self.tabla_resumen_pagos.setRowCount(0)
-        # Datos de ejemplo
-        pass
     
     def _cargar_docentes_desde_db(self):
         """Cargar docentes desde la base de datos"""
@@ -1062,9 +1173,6 @@ class ProgramaOverlay(BaseOverlay):
             self.año_input,
             self.version_combo,
             self.nombre_input,
-            self.nombre_checkbox,
-            self.btn_modo_descripcion,
-            self.descripcion_input,
             self.duracion_input,
             self.horas_input,
             self.estado_input,
@@ -1088,39 +1196,36 @@ class ProgramaOverlay(BaseOverlay):
             if widget is not None:
                 widget.setEnabled(not bloqueado)
         
-        # ===== MANEJO SEGURO DE BOTONES EN PESTAÑAS =====
-        botones_tabs = []
-        
+        # ===== MANEJO DE BOTONES EN PESTAÑAS =====
         # Buscar el QTabWidget en la UI
         tab_widget = self.findChild(QTabWidget)
-        if tab_widget is not None:
-            # Pestaña de estudiantes (índice 0)
-            if tab_widget.count() > 0:
-                tab_estudiantes = tab_widget.widget(0)
-                if tab_estudiantes is not None:
-                    botones = tab_estudiantes.findChildren(QPushButton)
-                    botones_tabs.extend(botones)
-            
-            # Pestaña de pagos (índice 1)
-            if tab_widget.count() > 1:
-                tab_pagos = tab_widget.widget(1)
-                if tab_pagos is not None:
-                    botones = tab_pagos.findChildren(QPushButton)
-                    botones_tabs.extend(botones)
-        
-        # También buscar botones directamente en el contenido (por si acaso)
-        if hasattr(self, 'tabla_estudiantes'):
-            tabla_container = self.tabla_estudiantes.parent()
-            if tabla_container is not None:
-                botones_adicionales = tabla_container.findChildren(QPushButton)
-                for boton in botones_adicionales:
-                    if boton not in botones_tabs:
-                        botones_tabs.append(boton)
-        
-        # Aplicar bloqueo a botones de tabs
-        for boton in botones_tabs:
-            if boton is not None:
-                boton.setEnabled(not bloqueado)
+        if tab_widget is not None and tab_widget.count() > 0:
+            # Obtener la pestaña de estudiantes (índice 0)
+            tab_estudiantes = tab_widget.widget(0)
+            if tab_estudiantes is not None:
+                # Buscar TODOS los botones en la pestaña
+                botones = tab_estudiantes.findChildren(QPushButton)
+                
+                for boton in botones:
+                    if boton is not None:
+                        # Botones que SIEMPRE deben estar habilitados
+                        texto_boton = boton.text().upper()
+                        
+                        # Botón de INSCRIBIR - SIEMPRE habilitado
+                        if "INSCRIBIR" in texto_boton:
+                            boton.setEnabled(True)
+                        
+                        # Botón de ACTUALIZAR/REFRESCAR - SIEMPRE habilitado
+                        elif "ACTUALIZAR" in texto_boton or "REFRESCAR" in texto_boton or "🔄" in boton.text():
+                            boton.setEnabled(True)
+                        
+                        # Botón VER detalle - también puede ser útil mantenerlo habilitado
+                        elif "VER" in texto_boton or "👁️" in boton.text():
+                            boton.setEnabled(True)
+                        
+                        # Otros botones sí se bloquean según el modo
+                        else:
+                            boton.setEnabled(not bloqueado)
         
         # El botón cancelar/cerrar siempre debe estar habilitado
         if hasattr(self, 'btn_cancelar') and self.btn_cancelar is not None:
@@ -1137,9 +1242,6 @@ class ProgramaOverlay(BaseOverlay):
                     border-radius: 4px;
                 }
             """)
-            
-            # También deshabilitar el checkbox de nombre personalizado
-            self.nombre_checkbox.setEnabled(False)
         else:
             self.codigo_generado_label.setProperty("readonly", "false")
             self.codigo_generado_label.setStyleSheet("")
@@ -1245,7 +1347,6 @@ class ProgramaOverlay(BaseOverlay):
     
     def obtener_datos(self):
         """Obtener todos los datos del formulario para la función PostgreSQL"""
-        logger.debug("DEBUG - ProgramaOverlay.obtener_datos()")
         
         # Obtener valores de los campos de texto
         costo_total_text = self.costo_total_input.text().strip()
@@ -1266,7 +1367,7 @@ class ProgramaOverlay(BaseOverlay):
         if current_data:
             docente_coordinador_id = current_data
             
-        nombre_oficial = self.nombre_input.text().strip() if self.nombre_checkbox.isChecked() else ""
+        nombre_oficial = self.nombre_input.text().strip()
         
         # IMPORTANTE: Obtener la descripción actual
         descripcion = self.descripcion_input.text().strip()
@@ -1310,8 +1411,6 @@ class ProgramaOverlay(BaseOverlay):
             "docente_coordinador_id": docente_coordinador_id
         }
         
-        logger.debug(f"DEBUG - ProgramaOverlay.obtener_datos() datos preparados: {datos}")
-        
         return datos
     
     def clear_form(self):
@@ -1324,13 +1423,10 @@ class ProgramaOverlay(BaseOverlay):
         self._actualizar_codigo()
         
         self.nombre_input.clear()
-        self.nombre_checkbox.setChecked(True)
         
         # Resetear descripción automática
         self.descripcion_automatica = True
         self.primer_cambio = True
-        self.btn_modo_descripcion.setChecked(True)
-        self.btn_modo_descripcion.setText("🔄 Auto")
         self._actualizar_descripcion(forzar_actualizacion=True)
         
         self.duracion_input.setText("24")
@@ -1361,34 +1457,54 @@ class ProgramaOverlay(BaseOverlay):
     
     def cargar_datos(self, datos):
         """Cargar datos en el formulario"""
-        logger.debug(f"DEBUG - ProgramaOverlay.cargar_datos() datos recibidos: {datos}")
         self.programa_id = datos.get('id')
         
+        # ANTES de cargar los datos, verificar si el programa debe concluirse
+        if self.programa_id and self.modo != "nuevo":
+            from service.programa_estado_service import ProgramaEstadoService
+
+            # Verificar si este programa específico debe ser concluido
+            resultado = ProgramaEstadoService.verificar_programa_especifico(self.programa_id)
+
+            if resultado.get('actualizado'):
+                # Si se actualizó, recargar los datos del programa
+                from model.programa_model import ProgramaModel
+                datos_actualizados = ProgramaModel.obtener_por_id(self.programa_id)
+                if datos_actualizados:
+                    datos = datos_actualizados
+                    # Mostrar notificación al usuario
+                    QMessageBox.information(
+                        self, 
+                        "ℹ️ Actualización Automática",
+                        f"El programa ha sido concluido automáticamente porque su fecha de fin ({datos.get('fecha_fin')}) "
+                        f"es anterior o igual a la fecha actual ({QDate.currentDate().toString('dd/MM/yyyy')})."
+                    )
+
         # Establecer el código primero
         if 'codigo' in datos:
             self.codigo_hidden.setText(datos['codigo'])
             self.codigo_generado_label.setText(datos['codigo'])
             self.codigo_construido = datos['codigo']
-        
+
         # Extraer componentes del código para nivel y carrera
         if 'codigo' in datos and datos['codigo']:
             codigo_parts = datos['codigo'].split('-')
             if len(codigo_parts) >= 2:
                 nivel_abrev = codigo_parts[0]
                 carrera_abrev = codigo_parts[1]
-                
+
                 # Buscar nivel por abreviatura
                 for nivel, abrev in self.NIVELES_ACADEMICOS.items():
                     if abrev == nivel_abrev:
                         self.nivel_combo.setCurrentText(nivel)
                         break
-                
+                    
                 # Buscar carrera por abreviatura
                 for i in range(self.carrera_combo.count()):
                     if self.carrera_combo.itemData(i) == carrera_abrev:
                         self.carrera_combo.setCurrentIndex(i)
                         break
-        
+                    
         # Año y versión
         if 'codigo' in datos and datos['codigo']:
             codigo_parts = datos['codigo'].split('-')
@@ -1396,7 +1512,7 @@ class ProgramaOverlay(BaseOverlay):
                 try:
                     año = int(codigo_parts[2]) if len(codigo_parts[2]) == 4 else int("20" + codigo_parts[2])
                     self.año_input.setText(str(año))
-                    
+
                     # Establecer versión romana
                     version_romana = codigo_parts[3]
                     index = self.version_combo.findText(version_romana)
@@ -1404,11 +1520,10 @@ class ProgramaOverlay(BaseOverlay):
                         self.version_combo.setCurrentIndex(index)
                 except:
                     pass
-        
+                
         if 'nombre' in datos:
             self.nombre_input.setText(datos['nombre'])
-            self.nombre_checkbox.setChecked(bool(datos['nombre']))
-        
+
         # Cargar datos numéricos como texto
         campos_numericos = [
             ('duracion_meses', self.duracion_input),
@@ -1417,87 +1532,122 @@ class ProgramaOverlay(BaseOverlay):
             ('cupos_inscritos', self.cupos_inscritos_input),
             ('numero_cuotas', self.cuotas_input),
         ]
-        
+
         for campo, widget in campos_numericos:
             if campo in datos and datos[campo] is not None:
                 widget.setText(str(datos[campo]))
-        
+
         # Cargar datos decimales como texto
         campos_decimales = [
             ('costo_total', self.costo_total_input),
             ('costo_matricula', self.costo_matricula_input),
             ('costo_inscripcion', self.costo_inscripcion_input)
         ]
-        
+
         for campo, widget in campos_decimales:
             if campo in datos and datos[campo] is not None:
                 widget.setText(str(datos[campo]))
-        
+
         if 'estado' in datos:
             index = self.estado_input.findText(datos['estado'])
             if index >= 0:
                 self.estado_input.setCurrentIndex(index)
-        
+
         # Cargar descripción
         if 'descripcion' in datos and datos['descripcion']:
-            self.descripcion_automatica = False
-            self.btn_modo_descripcion.setChecked(False)
-            self.btn_modo_descripcion.setText("✏️ Manual")
             self.descripcion_input.setText(datos['descripcion'])
         else:
             # Si no hay descripción, generar automáticamente
-            self.descripcion_automatica = True
-            self.btn_modo_descripcion.setChecked(True)
-            self.btn_modo_descripcion.setText("🔄 Auto")
             self._actualizar_descripcion(forzar_actualizacion=True)
-        
+
         # Cargar docente coordinador
         if 'docente_coordinador_id' in datos and datos['docente_coordinador_id']:
             docente_id = datos['docente_coordinador_id']
             self._cargar_docentes_desde_db()
-            
+
             # Esperar un momento para que se carguen los docentes
             QTimer.singleShot(100, lambda: self._seleccionar_docente(docente_id))
-        
+
         if 'fecha_inicio' in datos and datos['fecha_inicio']:
             fecha_inicio = QDate.fromString(str(datos['fecha_inicio']), "yyyy-MM-dd")
             if fecha_inicio.isValid():
                 self.fecha_inicio_input.setDate(fecha_inicio)
-        
+
         if 'fecha_fin' in datos and datos['fecha_fin']:
             fecha_fin = QDate.fromString(str(datos['fecha_fin']), "yyyy-MM-dd")
             if fecha_fin.isValid():
                 self.fecha_fin_input.setDate(fecha_fin)
-        
+
         self._calcular_cuotas()
-        self._actualizar_estadisticas()
+
+        # IMPORTANTE: Usar una bandera para evitar múltiples actualizaciones
+        if hasattr(self, '_estadisticas_actualizadas'):
+            return
+
+        # Actualizar estadísticas solo si no es modo nuevo
+        if self.modo != "nuevo":
+            # Usar un solo timer con un tiempo razonable
+            QTimer.singleShot(300, self._actualizar_estadisticas_unica)
+            self._estadisticas_actualizadas = True
+    
+    def _actualizar_estadisticas_unica(self):
+        """
+        Versión única de actualización de estadísticas con control para evitar
+        múltiples llamadas simultáneas.
+        """
+        # Verificar si ya hay una actualización en curso
+        if hasattr(self, '_actualizando_estadisticas') and self._actualizando_estadisticas:
+            return
+
+        self._actualizando_estadisticas = True
+
+        try:
+            # Llamar al método original de actualización
+            self._actualizar_estadisticas()
+        finally:
+            # Liberar la bandera después de un tiempo
+            QTimer.singleShot(1000, lambda: setattr(self, '_actualizando_estadisticas', False))
     
     def show_form(self, solo_lectura=False, datos=None, modo="nuevo"):
         """Mostrar el overlay con configuración específica"""
         self.solo_lectura = solo_lectura
-
+    
         # IMPORTANTE: Si solo_lectura es True, forzar modo="ver"
         if solo_lectura:
             modo = "ver"
-
+    
         self.set_modo(modo)
-
+    
+        # Mostrar/ocultar columna derecha según el modo
+        if hasattr(self, 'widget_derecha'):
+            if modo == "nuevo":
+                self.widget_derecha.setVisible(False)
+                splitter = self.findChild(QSplitter, "mainSplitter")
+                if splitter:
+                    splitter.setSizes([1000, 0])
+            else:
+                self.widget_derecha.setVisible(True)
+                splitter = self.findChild(QSplitter, "mainSplitter")
+                if splitter:
+                    splitter.setSizes([500, 500])
+        
         if datos:
             self.cargar_datos(datos)
+            if self.programa_id:
+                QTimer.singleShot(200, self._cargar_estudiantes_inscritos)
         elif modo == "nuevo":
             self.clear_form()
-
+            
         # Cargar docentes
         self._cargar_docentes_desde_db()
-
+        
         # Configurar botón de guardar según el modo
         if hasattr(self, 'btn_guardar') and self.btn_guardar is not None:
-            # Desconectar conexiones anteriores para evitar duplicados
             try:
                 self.btn_guardar.clicked.disconnect()
             except:
                 pass
-
+            
             if modo == "nuevo":
                 self.btn_guardar.setText("💾 GUARDAR PROGRAMA")
                 self.btn_guardar.clicked.connect(self.on_guardar)
@@ -1510,7 +1660,7 @@ class ProgramaOverlay(BaseOverlay):
                 self.btn_guardar.setText("✅ CERRAR")
                 self.btn_guardar.clicked.connect(self.close_overlay)
                 self.btn_guardar.setVisible(True)
-
+    
         # Configurar botón cancelar/cerrar
         if hasattr(self, 'btn_cancelar') and self.btn_cancelar is not None:
             try:
@@ -1518,20 +1668,19 @@ class ProgramaOverlay(BaseOverlay):
             except:
                 pass
             self.btn_cancelar.clicked.connect(self.close_overlay)
-
-            # En modo vista, ocultar botón cancelar o cambiar texto
+    
             if modo == "ver" or solo_lectura:
                 self.btn_cancelar.setText("✕ CERRAR")
-
+    
         # BLOQUEAR CAMPOS SI ES MODO LECTURA
         if solo_lectura or modo == "ver":
             self._bloquear_todos_los_campos(True)
         else:
             self._bloquear_todos_los_campos(False)
-
+    
         # Resetear flag de cierre
         self._cerrando = False
-
+    
         # Llamar al método base
         super().show_form(solo_lectura)
     
@@ -1539,11 +1688,15 @@ class ProgramaOverlay(BaseOverlay):
         """Sobrescribir método close_overlay para asegurar cierre correcto"""
         # Verificar si ya estamos en proceso de cierre
         if hasattr(self, '_cerrando') and self._cerrando:
-            logger.debug(f"⚠️  {self.__class__.__name__}.close_overlay() - Ya en proceso de cierre, ignorando")
             return
 
         self._cerrando = True
-        logger.debug(f"🔵 {self.__class__.__name__}.close_overlay() - Iniciando cierre")
+
+        # Limpiar banderas
+        if hasattr(self, '_estadisticas_actualizadas'):
+            delattr(self, '_estadisticas_actualizadas')
+        if hasattr(self, '_actualizando_estadisticas'):
+            delattr(self, '_actualizando_estadisticas')
 
         # Llamar al método base
         super().close_overlay()
@@ -1554,8 +1707,6 @@ class ProgramaOverlay(BaseOverlay):
 
         # Resetear flag después de un tiempo
         QTimer.singleShot(500, lambda: setattr(self, '_cerrando', False))
-
-        logger.debug(f"✅ {self.__class__.__name__}.close_overlay() - Completado")
     
     def on_guardar(self):
         """Método sobrescrito para manejar el guardado con señales específicas"""
@@ -1599,9 +1750,6 @@ class ProgramaOverlay(BaseOverlay):
                     
                     # Cerrar este overlay
                     self.close_overlay()
-                    
-                    logger.info(f"✅ Programa creado: {programa_guardado.get('codigo')} (ID: {programa_guardado.get('id')})")
-                
                 else:
                     QMessageBox.critical(self, "❌ Error", 
                                         resultado.get('message', 'Error desconocido al crear el programa'))
@@ -1621,14 +1769,189 @@ class ProgramaOverlay(BaseOverlay):
                     
                     # Cerrar este overlay
                     self.close_overlay()
-                    
-                    logger.info(f"✅ Programa actualizado: {programa_actualizado.get('codigo')} (ID: {programa_actualizado.get('id')})")
-                
                 else:
                     QMessageBox.critical(self, "❌ Error", 
                                         resultado.get('message', 'Error desconocido al actualizar el programa'))
         
         except Exception as e:
-            logger.error(f"❌ Error al guardar programa: {e}")
+            logger.error(f"Error al guardar programa: {e}")
             QMessageBox.critical(self, "❌ Error", 
                                 f"Error al guardar el programa:\n\n{str(e)}")
+    
+    def _cargar_estudiantes_inscritos(self):
+        """Cargar estudiantes inscritos en el programa desde la base de datos"""
+        if not self.programa_id:
+            return
+
+        try:
+            from model.inscripcion_model import InscripcionModel
+
+            # Limpiar tabla
+            self.tabla_estudiantes.setRowCount(0)
+
+            # Obtener inscripciones del programa
+            inscripciones = InscripcionModel.obtener_inscripciones_por_programa(self.programa_id)
+
+            if not inscripciones:
+                # Mostrar mensaje de que no hay estudiantes
+                self.tabla_estudiantes.setRowCount(1)
+                item = QTableWidgetItem("No hay estudiantes inscritos en este programa")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.tabla_estudiantes.setItem(0, 0, item)
+                self.tabla_estudiantes.setSpan(0, 0, 1, 5)
+                return
+
+            # Configurar la tabla
+            self.tabla_estudiantes.setColumnCount(6)  # Aumentamos a 6 columnas
+            self.tabla_estudiantes.setHorizontalHeaderLabels([
+                "ID Inscripción", "Estudiante", "Fecha Inscripción", 
+                "Estado", "Observaciones", "Acciones"
+            ])
+
+            # Llenar tabla con datos
+            for row, inscripcion in enumerate(inscripciones):
+                self.tabla_estudiantes.insertRow(row)
+
+                # ID Inscripción
+                id_item = QTableWidgetItem(str(inscripcion.get('id', '')))
+                id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                id_item.setData(Qt.ItemDataRole.UserRole, inscripcion.get('id'))  # Guardar ID
+                self.tabla_estudiantes.setItem(row, 0, id_item)
+
+                # Estudiante (nombre completo)
+                estudiante_nombre = self._formatear_nombre_estudiante(inscripcion)
+                nombre_item = QTableWidgetItem(estudiante_nombre)
+                self.tabla_estudiantes.setItem(row, 1, nombre_item)
+
+                # Fecha Inscripción
+                fecha_insc = inscripcion.get('fecha_inscripcion', '')
+                if fecha_insc:
+                    try:
+                        from datetime import datetime
+                        fecha_obj = datetime.fromisoformat(str(fecha_insc))
+                        fecha_str = fecha_obj.strftime("%d/%m/%Y")
+                    except:
+                        fecha_str = str(fecha_insc)
+                else:
+                    fecha_str = ''
+                fecha_item = QTableWidgetItem(fecha_str)
+                fecha_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tabla_estudiantes.setItem(row, 2, fecha_item)
+
+                # Estado
+                estado = inscripcion.get('estado', 'ACTIVO')
+                estado_item = QTableWidgetItem(estado)
+                estado_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                # Colorear según estado
+                if estado == 'ACTIVO':
+                    estado_item.setForeground(Qt.GlobalColor.darkGreen)
+                elif estado == 'PENDIENTE':
+                    estado_item.setForeground(Qt.GlobalColor.darkYellow)
+                elif estado == 'CANCELADO':
+                    estado_item.setForeground(Qt.GlobalColor.darkRed)
+                elif estado == 'CONCLUIDO':
+                    estado_item.setForeground(Qt.GlobalColor.darkBlue)
+
+                self.tabla_estudiantes.setItem(row, 3, estado_item)
+
+                # Observaciones
+                observaciones = inscripcion.get('observaciones', '')
+                obs_item = QTableWidgetItem(observaciones)
+                self.tabla_estudiantes.setItem(row, 4, obs_item)
+
+                # Botón Ver detalles (opcional)
+                btn_ver = QPushButton("👁️ Ver")
+                btn_ver.clicked.connect(lambda checked, i=inscripcion: self._ver_detalle_inscripcion(i))
+                self.tabla_estudiantes.setCellWidget(row, 5, btn_ver)
+
+            # Ajustar columnas
+            self.tabla_estudiantes.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Columna estudiante se estira
+            self.tabla_estudiantes.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # Columna observaciones se estira
+            self.tabla_estudiantes.setColumnWidth(0, 100)  # ID
+            self.tabla_estudiantes.setColumnWidth(2, 120)  # Fecha
+            self.tabla_estudiantes.setColumnWidth(3, 100)  # Estado
+            self.tabla_estudiantes.setColumnWidth(5, 80)   # Acciones
+
+        except Exception as e:
+            logger.error(f"Error cargando estudiantes inscritos: {e}")
+            self.tabla_estudiantes.setRowCount(1)
+            item = QTableWidgetItem(f"Error al cargar estudiantes: {str(e)}")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla_estudiantes.setItem(0, 0, item)
+            self.tabla_estudiantes.setSpan(0, 0, 1, 5)
+    
+    def _formatear_nombre_estudiante(self, inscripcion):
+        """Formatear nombre completo del estudiante"""
+        try:
+            # Intentar obtener datos del estudiante anidado
+            estudiante = inscripcion.get('estudiante', {})
+            if estudiante:
+                nombres = estudiante.get('nombres', '')
+                apellido_paterno = estudiante.get('apellido_paterno', '')
+                apellido_materno = estudiante.get('apellido_materno', '')
+
+                if apellido_materno:
+                    return f"{apellido_paterno} {apellido_materno}, {nombres}".strip()
+                else:
+                    return f"{apellido_paterno}, {nombres}".strip()
+            else:
+                # Si no hay datos anidados, buscar directamente
+                nombres = inscripcion.get('nombres', '')
+                apellidos = inscripcion.get('apellidos', '')
+                if nombres and apellidos:
+                    return f"{apellidos}, {nombres}"
+                elif nombres:
+                    return nombres
+                else:
+                    return "Estudiante sin nombre"
+        except Exception as e:
+            logger.error(f"Error formateando nombre: {e}")
+            return "Error en nombre"
+    
+    def _ver_detalle_inscripcion(self, inscripcion):
+        """Ver detalles de una inscripción específica"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Detalle de Inscripción #{inscripcion.get('id', 'N/A')}")
+        dialog.setMinimumWidth(500)
+        dialog.setMinimumHeight(400)
+
+        layout = QVBoxLayout(dialog)
+
+        # Crear área de texto para mostrar detalles
+        texto_detalle = QTextEdit()
+        texto_detalle.setReadOnly(True)
+
+        # Formatear detalles
+        detalles = []
+        detalles.append(f"🏷️ ID Inscripción: {inscripcion.get('id', 'N/A')}")
+        detalles.append(f"👤 Estudiante: {self._formatear_nombre_estudiante(inscripcion)}")
+
+        # Datos del estudiante si están disponibles
+        estudiante = inscripcion.get('estudiante', {})
+        if estudiante:
+            detalles.append(f"📧 Email: {estudiante.get('email', 'No especificado')}")
+            detalles.append(f"📱 Teléfono: {estudiante.get('telefono', 'No especificado')}")
+            detalles.append(f"🆔 CI: {estudiante.get('ci', 'No especificado')}")
+
+        detalles.append(f"📅 Fecha Inscripción: {inscripcion.get('fecha_inscripcion', 'No especificada')}")
+        detalles.append(f"📊 Estado: {inscripcion.get('estado', 'No especificado')}")
+        detalles.append(f"💬 Observaciones: {inscripcion.get('observaciones', 'Sin observaciones')}")
+
+        texto_detalle.setText("\n".join(detalles))
+
+        layout.addWidget(texto_detalle)
+
+        # Botones
+        btn_layout = QHBoxLayout()
+        btn_cerrar = QPushButton("Cerrar")
+        btn_cerrar.clicked.connect(dialog.accept)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_cerrar)
+
+        layout.addLayout(btn_layout)
+
+        dialog.exec()

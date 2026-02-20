@@ -1495,7 +1495,7 @@ class InicioTab(BaseTab):
             SELECT 
                 e.id, e.ci_numero, e.ci_expedicion, e.nombres, 
                 e.apellido_paterno, e.apellido_materno, e.email,
-                i.fecha_inscripcion, i.estado, i.descuento_aplicado
+                i.fecha_inscripcion, i.estado, i.valor_final
             FROM inscripciones i
             JOIN estudiantes e ON i.estudiante_id = e.id
             WHERE i.programa_id = %s

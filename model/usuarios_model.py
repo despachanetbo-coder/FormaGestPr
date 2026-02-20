@@ -37,7 +37,10 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_insertar_usuario', (username, password_hash, nombre_completo, email, rol, activo))
-            result = cursor.fetchone()[0]
+            fetchone_result = cursor.fetchone()
+            if fetchone_result is None:
+                raise Exception("No se recibió respuesta del procedimiento almacenado")
+            result = fetchone_result[0]
             
             connection.commit()
             
@@ -97,7 +100,10 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_actualizar_usuario', (id, username, password_hash, nombre_completo, email, rol, activo))
-            result = cursor.fetchone()[0]
+            fetchone_result = cursor.fetchone()
+            if fetchone_result is None:
+                raise Exception("No se recibió respuesta del procedimiento almacenado")
+            result = fetchone_result[0]
             
             connection.commit()
             
@@ -147,7 +153,10 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_eliminar_usuario', (id,))
-            result = cursor.fetchone()[0]
+            fetchone_result = cursor.fetchone()
+            if fetchone_result is None:
+                raise Exception("No se recibió respuesta del procedimiento almacenado")
+            result = fetchone_result[0]
             
             connection.commit()
             
@@ -197,7 +206,10 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_activar_usuario', (id,))
-            result = cursor.fetchone()[0]
+            fetchone_result = cursor.fetchone()
+            if fetchone_result is None:
+                raise Exception("No se recibió respuesta del procedimiento almacenado")
+            result = fetchone_result[0]
             
             connection.commit()
             
@@ -248,7 +260,10 @@ class UsuariosModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_cambiar_rol_usuario', (id, nuevo_rol))
-            result = cursor.fetchone()[0]
+            fetchone_result = cursor.fetchone()
+            if fetchone_result is None:
+                raise Exception("No se recibió respuesta del procedimiento almacenado")
+            result = fetchone_result[0]
             
             connection.commit()
             
@@ -301,7 +316,7 @@ class UsuariosModel:
             usuario = cursor.fetchone()
             
             if usuario:
-                column_names = [desc[0] for desc in cursor.description]
+                column_names = [desc[0] for desc in cursor.description] if cursor.description else []
                 usuario_dict = dict(zip(column_names, usuario))
                 return usuario_dict
             else:
@@ -344,7 +359,7 @@ class UsuariosModel:
             usuario = cursor.fetchone()
             
             if usuario:
-                column_names = [desc[0] for desc in cursor.description]
+                column_names = [desc[0] for desc in cursor.description] if cursor.description else []
                 usuario_dict = dict(zip(column_names, usuario))
                 return usuario_dict
             else:
@@ -393,7 +408,7 @@ class UsuariosModel:
                             (username, nombre_completo, rol, activo))
             usuarios = cursor.fetchall()
             
-            column_names = [desc[0] for desc in cursor.description]
+            column_names = [desc[0] for desc in cursor.description] if cursor.description else []
             result = []
             for usuario in usuarios:
                 usuario_dict = dict(zip(column_names, usuario))
@@ -434,7 +449,7 @@ class UsuariosModel:
             cursor.execute("SELECT * FROM listar_usuarios()")
             usuarios = cursor.fetchall()
             
-            column_names = [desc[0] for desc in cursor.description]
+            column_names = [desc[0] for desc in cursor.description] if cursor.description else []
             result = []
             for usuario in usuarios:
                 usuario_dict = dict(zip(column_names, usuario))

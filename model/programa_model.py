@@ -650,3 +650,97 @@ class ProgramaModel(BaseModel):
                 'data': None,
                 'message': f'Error: {str(e)}'
             }
+    
+    @staticmethod
+    def obtener_programas_para_concluir(fecha_actual):
+        """
+        Obtiene programas que deben ser concluidos automáticamente.
+
+        Args:
+            fecha_actual: Fecha de referencia (date object)
+
+        Returns:
+            Lista de programas que cumplen: 
+            - estado NOT IN ('CONCLUIDO', 'CANCELADO')
+            - fecha_fin <= fecha_actual
+        """
+        try:
+            connection = Database.get_connection()
+            if not connection:
+                return False
+            
+            cursor = connection.cursor()
+
+            query = """
+            SELECT id, codigo, nombre, fecha_fin, estado
+            FROM programas
+            WHERE estado NOT IN ('CONCLUIDO', 'CANCELADO')
+            AND fecha_fin <= %s
+            ORDER BY fecha_fin ASC
+            """
+
+            cursor.execute(query, (fecha_actual,))
+            resultados = cursor.fetchall()
+
+            cursor.close()
+            connection.close()
+
+            return resultados
+
+        except Exception as e:
+            logger.error(f"Error obteniendo programas para concluir: {e}")
+            return []
+
+    @staticmethod
+    def actualizar_estado(programa_id, nuevo_estado):
+        """
+        Actualiza solo el estado de un programa.
+
+        Args:
+            programa_id: ID del programa
+            nuevo_estado: Nuevo estado ('CONCLUIDO', etc.)
+
+        Returns:
+            Dict con resultado de la operación
+        """
+        try:
+            conn = Database.get_connection()
+            if not conn:
+                return {
+                    'success': False,
+                    'message': 'No se pudo obtener conexión a la base de datos'
+                }
+            cursor = conn.cursor()
+
+            query = """
+            UPDATE programas 
+            SET estado = %s, 
+                updated_at = NOW() 
+            WHERE id = %s
+            """
+
+            cursor.execute(query, (nuevo_estado, programa_id))
+            conn.commit()
+
+            success = cursor.rowcount > 0
+            message = "Estado actualizado" if success else "No se encontró el programa"
+
+            cursor.close()
+            Database.return_connection(conn)
+
+            if success:
+                logger.info(f"✅ Programa ID {programa_id} actualizado a estado: {nuevo_estado}")
+
+            return {
+                'success': success,
+                'message': message,
+                'programa_id': programa_id,
+                'nuevo_estado': nuevo_estado
+            }
+
+        except Exception as e:
+            logger.error(f"Error actualizando estado de programa {programa_id}: {e}")
+            return {
+                'success': False,
+                'message': str(e)
+            }

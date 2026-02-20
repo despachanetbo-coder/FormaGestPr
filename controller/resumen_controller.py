@@ -30,33 +30,33 @@ class ResumenController:
             
             # Solo importar si existen
             try:
-                from controller.programa_controller import ProgramaController
+                from .programa_controller import ProgramaController
                 self.programa_controller = ProgramaController()
-            except ImportError:
+            except (ImportError, TypeError):
                 logger.warning("ProgramaController no disponible")
             
             try:
-                from controller.estudiante_controller import EstudianteController
+                from .estudiante_controller import EstudianteController
                 self.estudiante_controller = EstudianteController()
-            except ImportError:
+            except (ImportError, TypeError):
                 logger.warning("EstudianteController no disponible")
             
             try:
-                from controller.docente_controller import DocenteController
+                from .docente_controller import DocenteController
                 self.docente_controller = DocenteController()
-            except ImportError:
+            except (ImportError, TypeError):
                 logger.warning("DocenteController no disponible")
             
             try:
-                from controller.inscripcion_controller import InscripcionController
+                from .inscripcion_controller import InscripcionController
                 self.inscripcion_controller = InscripcionController()
-            except ImportError:
+            except (ImportError, TypeError):
                 logger.warning("InscripcionController no disponible")
             
             try:
-                from controller.auth_controller import AuthController
+                from .auth_controller import AuthController
                 self.auth_controller = AuthController()
-            except ImportError:
+            except (ImportError, TypeError):
                 logger.warning("AuthController no disponible")
             
             # No usar ResumenModel por ahora
@@ -184,20 +184,21 @@ class ResumenController:
             }
             
             # Intentar obtener datos de estudiantes si hay controlador
-            if hasattr(self.estudiante_controller, 'obtener_todos'):
+            if self.estudiante_controller is not None:
                 try:
-                    estudiantes = self.estudiante_controller.obtener_todos()
-                    if isinstance(estudiantes, list):
-                        metricas['total_estudiantes'] = len(estudiantes)
-                        metricas['total_estudiantes_activos'] = len([
-                            e for e in estudiantes 
-                            if e.get('estado') == 'ACTIVO' if isinstance(e, dict)
-                        ])
+                    if hasattr(self.estudiante_controller, 'obtener_todos'):
+                        estudiantes = self.estudiante_controller.obtener_todos()
+                        if isinstance(estudiantes, list):
+                            metricas['total_estudiantes'] = len(estudiantes)
+                            metricas['total_estudiantes_activos'] = len([
+                                e for e in estudiantes 
+                                if isinstance(e, dict) and e.get('estado') == 'ACTIVO'
+                            ])
                 except Exception as e:
                     logger.warning(f"No se pudieron obtener estudiantes: {e}")
             
             # Intentar obtener datos de docentes si hay controlador
-            if hasattr(self.docente_controller, 'obtener_todos'):
+            if self.docente_controller is not None and hasattr(self.docente_controller, 'obtener_todos'):
                 try:
                     docentes = self.docente_controller.obtener_todos()
                     if isinstance(docentes, list):
@@ -210,7 +211,7 @@ class ResumenController:
                     logger.warning(f"No se pudieron obtener docentes: {e}")
             
             # Intentar obtener datos de programas si hay controlador
-            if hasattr(self.programa_controller, 'obtener_todos'):
+            if self.programa_controller is not None and hasattr(self.programa_controller, 'obtener_todos'):
                 try:
                     programas = self.programa_controller.obtener_todos()
                     if isinstance(programas, list):
@@ -247,7 +248,9 @@ class ResumenController:
         try:
             distribucion = {}
             
-            if (hasattr(self.programa_controller, 'obtener_todos') and 
+            if (self.programa_controller is not None and
+                self.inscripcion_controller is not None and
+                hasattr(self.programa_controller, 'obtener_todos') and 
                 hasattr(self.inscripcion_controller, 'obtener_todos')):
                 
                 programas = self.programa_controller.obtener_todos()
@@ -290,7 +293,7 @@ class ResumenController:
         try:
             programas_detallados = []
             
-            if hasattr(self.programa_controller, 'obtener_todos'):
+            if self.programa_controller is not None and hasattr(self.programa_controller, 'obtener_todos'):
                 programas = self.programa_controller.obtener_todos()
                 
                 if isinstance(programas, list):
@@ -306,7 +309,7 @@ class ResumenController:
                         
                         # Obtener estudiantes matriculados
                         estudiantes_matriculados = 0
-                        if hasattr(self.inscripcion_controller, 'obtener_todos'):
+                        if self.inscripcion_controller is not None and hasattr(self.inscripcion_controller, 'obtener_todos'):
                             inscripciones = self.inscripcion_controller.obtener_todos()
                             if isinstance(inscripciones, list):
                                 estudiantes_matriculados = len([
@@ -319,7 +322,7 @@ class ResumenController:
                         # Obtener información del docente/tutor
                         docente_nombre = "Sin asignar"
                         docente_id = programa.get('docente_id')
-                        if docente_id and hasattr(self.docente_controller, 'obtener_por_id'):
+                        if docente_id and self.docente_controller is not None and hasattr(self.docente_controller, 'obtener_por_id'):
                             try:
                                 docente = self.docente_controller.obtener_por_id(docente_id)
                                 if isinstance(docente, dict):
@@ -390,7 +393,8 @@ class ResumenController:
                 # Intentar obtener ingresos reales de inscripciones
                 ingresos = base_ingresos * (crecimiento_mensual ** (meses - i - 1))
                 
-                if (hasattr(self.inscripcion_controller, 'obtener_todos') and 
+                if (self.inscripcion_controller is not None and
+                    hasattr(self.inscripcion_controller, 'obtener_todos') and 
                     i == 0):  # Solo para el mes actual intentar datos reales
                     try:
                         inscripciones = self.inscripcion_controller.obtener_todos()

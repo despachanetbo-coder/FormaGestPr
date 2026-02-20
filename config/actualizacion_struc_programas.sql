@@ -421,3 +421,360 @@ BEGIN
     RAISE NOTICE '✅ Actualización de funciones completada';
     RAISE NOTICE '============================================';
 END $$;
+
+
+-- ==================== QUINTO: MODIFICAR TABLA INSCRIPCIONES =======================
+ALTER TABLE inscripciones
+DROP COLUMN IF EXISTS descuento_aplicado,
+ADD COLUMN IF NOT EXISTS valor_final NUMERIC(10,2) DEFAULT 0;
+
+
+-- Eliminar la función anterior si existe
+DROP FUNCTION IF EXISTS fn_crear_inscripcion(INT, INT, FLOAT, TEXT, DATE);
+
+-- Crear la nueva función con valor_final
+CREATE OR REPLACE FUNCTION fn_crear_inscripcion(
+    p_estudiante_id INT,
+    p_programa_id INT,
+    p_valor_final NUMERIC(10,2),
+    p_observaciones TEXT,
+    p_fecha_inscripcion DATE DEFAULT CURRENT_DATE
+)
+RETURNS JSON AS $$
+DECLARE
+    v_inscripcion_id INT;
+    v_costo_total NUMERIC(10,2);
+    v_resultado JSON;
+BEGIN
+    -- Obtener el costo total del programa
+    SELECT costo_total INTO v_costo_total
+    FROM programas
+    WHERE id = p_programa_id;
+    
+    -- Validar que el valor final no sea mayor al costo total
+    IF p_valor_final > v_costo_total THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', format('El valor final (%s) no puede ser mayor al costo total del programa (%s)', 
+                            p_valor_final, v_costo_total)
+        );
+    END IF;
+    
+    -- Insertar la nueva inscripción
+    INSERT INTO inscripciones (
+        estudiante_id,
+        programa_id,
+        fecha_inscripcion,
+        valor_final,
+        observaciones,
+        estado
+    ) VALUES (
+        p_estudiante_id,
+        p_programa_id,
+        COALESCE(p_fecha_inscripcion, CURRENT_DATE),
+        p_valor_final,
+        p_observaciones,
+        'PREINSCRITO'
+    )
+    RETURNING id INTO v_inscripcion_id;
+    
+    -- Actualizar contador de cupos
+    UPDATE programas 
+    SET cupos_inscritos = cupos_inscritos + 1
+    WHERE id = p_programa_id;
+    
+    -- Retornar éxito
+    v_resultado := json_build_object(
+        'success', true,
+        'id', v_inscripcion_id,
+        'message', 'Inscripción creada exitosamente'
+    );
+    
+    RETURN v_resultado;
+EXCEPTION WHEN OTHERS THEN
+    RETURN json_build_object(
+        'success', false,
+        'message', SQLERRM
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- =====================================================
+-- CORRECCIÓN COMPLETA: Reemplazar descuento_aplicado por valor_final
+-- =====================================================
+
+-- 1. Actualizar función fn_obtener_detalle_inscripcion
+DROP FUNCTION IF EXISTS fn_obtener_detalle_inscripcion(INT);
+
+CREATE OR REPLACE FUNCTION fn_obtener_detalle_inscripcion(p_inscripcion_id INT)
+RETURNS JSON AS $$
+DECLARE
+    v_resultado JSON;
+BEGIN
+    SELECT json_build_object(
+        'inscripcion', json_build_object(
+            'id', i.id,
+            'fecha_inscripcion', i.fecha_inscripcion,
+            'estado', i.estado,
+            'valor_final', i.valor_final,
+            'observaciones', i.observaciones,
+            'created_at', i.created_at
+        ),
+        'estudiante', json_build_object(
+            'id', e.id,
+            'ci_completo', e.ci_numero || ' ' || e.ci_expedicion,
+            'nombres_completos', e.nombres || ' ' || e.apellido_paterno || ' ' || COALESCE(e.apellido_materno, ''),
+            'telefono', e.telefono,
+            'email', e.email,
+            'profesion', e.profesion
+        ),
+        'programa', json_build_object(
+            'id', p.id,
+            'codigo', p.codigo,
+            'nombre', p.nombre,
+            'duracion_meses', p.duracion_meses,
+            'horas_totales', p.horas_totales,
+            'costo_total', p.costo_total,
+            'costo_matricula', p.costo_matricula,
+            'costo_inscripcion', p.costo_inscripcion,
+            'fecha_inicio', p.fecha_inicio,
+            'fecha_fin', p.fecha_fin,
+            'cupos_disponibles', p.cupos_maximos - p.cupos_inscritos
+        ),
+        'pagos', COALESCE((
+            SELECT json_agg(json_build_object(
+                'id', t.id,
+                'numero_transaccion', t.numero_transaccion,
+                'fecha_pago', t.fecha_pago,
+                'monto_total', t.monto_total,
+                'descuento_total', t.descuento_total,
+                'monto_final', t.monto_final,
+                'forma_pago', t.forma_pago,
+                'estado', t.estado,
+                'detalles', (
+                    SELECT json_agg(json_build_object(
+                        'concepto', cp.nombre,
+                        'cantidad', dt.cantidad,
+                        'precio_unitario', dt.precio_unitario,
+                        'subtotal', dt.subtotal
+                    ))
+                    FROM detalles_transaccion dt
+                    JOIN conceptos_pago cp ON dt.concepto_pago_id = cp.id
+                    WHERE dt.transaccion_id = t.id
+                )
+            ))
+            FROM transacciones t
+            WHERE t.estudiante_id = i.estudiante_id
+            AND t.programa_id = i.programa_id
+            AND t.estado = 'CONFIRMADO'
+        ), '[]'::JSON),
+        'documentos', COALESCE((
+            SELECT json_agg(json_build_object(
+                'id', dr.id,
+                'tipo_documento', dr.tipo_documento,
+                'nombre_original', dr.nombre_original,
+                'nombre_archivo', dr.nombre_archivo,
+                'extension', dr.extension,
+                'tamano_bytes', dr.tamano_bytes,
+                'fecha_subida', dr.fecha_subida
+            ))
+            FROM documentos_respaldo dr
+            JOIN transacciones t ON dr.transaccion_id = t.id
+            WHERE t.estudiante_id = i.estudiante_id
+            AND t.programa_id = i.programa_id
+        ), '[]'::JSON),
+        'saldo', i.valor_final - COALESCE((
+            SELECT SUM(t.monto_final)
+            FROM transacciones t
+            WHERE t.estudiante_id = i.estudiante_id
+            AND t.programa_id = i.programa_id
+            AND t.estado = 'CONFIRMADO'
+        ), 0)
+    ) INTO v_resultado
+    FROM inscripciones i
+    JOIN estudiantes e ON i.estudiante_id = e.id
+    JOIN programas p ON i.programa_id = p.id
+    WHERE i.id = p_inscripcion_id;
+    
+    RETURN v_resultado;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Actualizar función fn_crear_inscripcion
+DROP FUNCTION IF EXISTS fn_crear_inscripcion(INT, INT, FLOAT, TEXT, DATE);
+
+CREATE OR REPLACE FUNCTION fn_crear_inscripcion(
+    p_estudiante_id INT,
+    p_programa_id INT,
+    p_valor_final NUMERIC(10,2),
+    p_observaciones TEXT,
+    p_fecha_inscripcion DATE DEFAULT CURRENT_DATE
+)
+RETURNS JSON AS $$
+DECLARE
+    v_inscripcion_id INT;
+    v_costo_total NUMERIC(10,2);
+    v_resultado JSON;
+BEGIN
+    -- Obtener el costo total del programa
+    SELECT costo_total INTO v_costo_total
+    FROM programas
+    WHERE id = p_programa_id;
+    
+    -- Validar que el valor final no sea mayor al costo total
+    IF p_valor_final > v_costo_total THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', format('El valor final (%s) no puede ser mayor al costo total del programa (%s)', 
+                            p_valor_final, v_costo_total)
+        );
+    END IF;
+    
+    -- Insertar la nueva inscripción
+    INSERT INTO inscripciones (
+        estudiante_id,
+        programa_id,
+        fecha_inscripcion,
+        valor_final,
+        observaciones,
+        estado
+    ) VALUES (
+        p_estudiante_id,
+        p_programa_id,
+        COALESCE(p_fecha_inscripcion, CURRENT_DATE),
+        p_valor_final,
+        p_observaciones,
+        'PREINSCRITO'
+    )
+    RETURNING id INTO v_inscripcion_id;
+    
+    -- Actualizar contador de cupos
+    UPDATE programas 
+    SET cupos_inscritos = cupos_inscritos + 1
+    WHERE id = p_programa_id;
+    
+    -- Retornar éxito
+    v_resultado := json_build_object(
+        'success', true,
+        'id', v_inscripcion_id,
+        'message', 'Inscripción creada exitosamente'
+    );
+    
+    RETURN v_resultado;
+EXCEPTION WHEN OTHERS THEN
+    RETURN json_build_object(
+        'success', false,
+        'message', SQLERRM
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 3. Actualizar función fn_crear_inscripcion_retroactiva
+DROP FUNCTION IF EXISTS fn_crear_inscripcion_retroactiva(INT, INT, DATE, FLOAT, TEXT);
+
+CREATE OR REPLACE FUNCTION fn_crear_inscripcion_retroactiva(
+    p_estudiante_id INT,
+    p_programa_id INT,
+    p_fecha_inscripcion DATE,
+    p_valor_final NUMERIC(10,2),
+    p_observaciones TEXT
+)
+RETURNS JSON AS $$
+DECLARE
+    v_inscripcion_id INT;
+    v_costo_total NUMERIC(10,2);
+    v_resultado JSON;
+BEGIN
+    -- Obtener el costo total del programa
+    SELECT costo_total INTO v_costo_total
+    FROM programas
+    WHERE id = p_programa_id;
+    
+    -- Validar que el valor final no sea mayor al costo total
+    IF p_valor_final > v_costo_total THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', format('El valor final (%s) no puede ser mayor al costo total del programa (%s)', 
+                            p_valor_final, v_costo_total)
+        );
+    END IF;
+    
+    -- Insertar la nueva inscripción
+    INSERT INTO inscripciones (
+        estudiante_id,
+        programa_id,
+        fecha_inscripcion,
+        valor_final,
+        observaciones,
+        estado
+    ) VALUES (
+        p_estudiante_id,
+        p_programa_id,
+        p_fecha_inscripcion,
+        p_valor_final,
+        p_observaciones,
+        'PREINSCRITO'
+    )
+    RETURNING id INTO v_inscripcion_id;
+    
+    -- Actualizar contador de cupos
+    UPDATE programas 
+    SET cupos_inscritos = cupos_inscritos + 1
+    WHERE id = p_programa_id;
+    
+    -- Retornar éxito
+    v_resultado := json_build_object(
+        'success', true,
+        'id', v_inscripcion_id,
+        'message', 'Inscripción retroactiva creada exitosamente'
+    );
+    
+    RETURN v_resultado;
+EXCEPTION WHEN OTHERS THEN
+    RETURN json_build_object(
+        'success', false,
+        'message', SQLERRM
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 4. Actualizar función fn_actualizar_inscripcion
+DROP FUNCTION IF EXISTS fn_actualizar_inscripcion(INT, TEXT, FLOAT, TEXT);
+
+CREATE OR REPLACE FUNCTION fn_actualizar_inscripcion(
+    p_inscripcion_id INT,
+    p_nuevo_estado TEXT DEFAULT NULL,
+    p_nuevo_valor_final NUMERIC(10,2) DEFAULT NULL,
+    p_nuevas_observaciones TEXT DEFAULT NULL
+)
+RETURNS JSON AS $$
+DECLARE
+    v_resultado JSON;
+BEGIN
+    UPDATE inscripciones
+    SET 
+        estado = COALESCE(p_nuevo_estado, estado),
+        valor_final = COALESCE(p_nuevo_valor_final, valor_final),
+        observaciones = COALESCE(p_nuevas_observaciones, observaciones)
+    WHERE id = p_inscripcion_id;
+    
+    GET DIAGNOSTICS v_resultado = ROW_COUNT;
+    
+    IF v_resultado > 0 THEN
+        RETURN json_build_object(
+            'success', true,
+            'message', 'Inscripción actualizada exitosamente'
+        );
+    ELSE
+        RETURN json_build_object(
+            'success', false,
+            'message', 'No se encontró la inscripción'
+        );
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RETURN json_build_object(
+        'success', false,
+        'message', SQLERRM
+    );
+END;
+$$ LANGUAGE plpgsql;

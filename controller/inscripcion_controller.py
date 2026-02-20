@@ -38,8 +38,8 @@ class InscripcionController(BaseController):
         Verifica y prepara datos para pre-inscripción
         
         Args:
-            estudiante_ci: CI del estudiante
-            programa_codigo: Código del programa
+            estudiante_id: ID del estudiante
+            programa_id: ID del programa
             
         Returns:
             Dict con datos verificados y costos calculados
@@ -47,28 +47,30 @@ class InscripcionController(BaseController):
         try:
             # Buscar estudiante
             from model.estudiante_model import EstudianteModel
-            estudiante = EstudianteModel.obtener_estudiante_por_id(estudiante_id)
+            
+            # El método buscar_estudiante_id devuelve un diccionario directamente
+            estudiante = EstudianteModel.buscar_estudiante_id(estudiante_id)
             
             if not estudiante:
                 return {
                     'success': False,
-                    'message': 'Estudiante no encontrado'
+                    'message': f'Estudiante con ID {estudiante_id} no encontrado'
                 }
             
             # Buscar programa
             from model.programa_model import ProgramaModel
-            programa = ProgramaModel.obtener_programa(programa_id)
+            resultado_programa = ProgramaModel.obtener_programa(programa_id)
             
-            if not programa:
+            if not resultado_programa.get('success'):
                 return {
                     'success': False,
-                    'message': 'Programa no encontrado'
+                    'message': f'Programa con ID {programa_id} no encontrado'
                 }
             
+            programa = resultado_programa['data']
+            
             # Verificar disponibilidad
-            disponibilidad = InscripcionModel.verificar_disponibilidad_programa(
-                programa['id']
-            )
+            disponibilidad = InscripcionModel.verificar_disponibilidad_programa(programa_id)
             
             if not disponibilidad.get('success', False):
                 return disponibilidad
@@ -94,7 +96,7 @@ class InscripcionController(BaseController):
             SELECT 1 FROM inscripciones 
             WHERE estudiante_id = %s AND programa_id = %s
             """
-            cursor.execute(query, (estudiante['id'], programa['id']))
+            cursor.execute(query, (estudiante_id, programa_id))
             ya_inscrito = cursor.fetchone()
             
             cursor.close()
@@ -107,8 +109,8 @@ class InscripcionController(BaseController):
                 }
             
             # Calcular costos iniciales
-            costo_matricula = programa['costo_matricula'] or 0
-            costo_inscripcion = programa['costo_inscripcion'] or 0
+            costo_matricula = float(programa.get('costo_matricula', 0) or 0)
+            costo_inscripcion = float(programa.get('costo_inscripcion', 0) or 0)
             costo_inicial = costo_matricula + costo_inscripcion
             
             return {
@@ -121,36 +123,106 @@ class InscripcionController(BaseController):
                         'matricula': costo_matricula,
                         'inscripcion': costo_inscripcion,
                         'inicial': costo_inicial,
-                        'total': programa['costo_total'],
-                        'mensualidad': programa['costo_mensualidad']
+                        'total': float(programa.get('costo_total', 0) or 0),
+                        'mensualidad': float(programa.get('costo_mensualidad', 0) or 0)
                     }
                 }
             }
             
         except Exception as e:
             logger.error(f"Error verificando pre-inscripción: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {
                 'success': False,
                 'message': f'Error verificando pre-inscripción: {str(e)}'
             }
     
     @staticmethod
+    def validar_observaciones_con_descuento(
+        valor_real: float,
+        valor_final: float,
+        observaciones: str
+    ) -> tuple[bool, str]:
+        """
+        Valida que las observaciones tengan el formato correcto cuando hay descuento
+        
+        Args:
+            valor_real: Valor real del programa
+            valor_final: Valor final de la inscripción
+            observaciones: Observaciones a validar
+            
+        Returns:
+            Tuple (es_valido, mensaje_error)
+        """
+        if valor_final <= 0:
+            return False, "El valor final debe ser mayor a 0"
+        
+        if valor_final > valor_real:
+            return False, f"El valor final ({valor_final:.2f}) no puede ser mayor al valor real ({valor_real:.2f})"
+        
+        # Si no hay descuento
+        if abs(valor_final - valor_real) < 0.01:  # Consideramos iguales si la diferencia es menor a 1 centavo
+            esperado = "No se aplicó ningún descuento"
+            if esperado not in observaciones:
+                return False, f"Cuando no hay descuento, las observaciones deben contener: '{esperado}'"
+            return True, ""
+        
+        # Si hay descuento
+        porcentaje = ((valor_real - valor_final) / valor_real) * 100
+        patron_esperado = f"Se aplica un descuento de {porcentaje:.2f}% Justificación:"
+        
+        if not observaciones.startswith(patron_esperado):
+            return False, f"Las observaciones deben comenzar con: '{patron_esperado}'"
+        
+        # Verificar que haya justificación después de "Justificación: "
+        if "Justificación:" in observaciones:
+            partes = observaciones.split("Justificación:")
+            if len(partes) > 1 and partes[1].strip() == "":
+                return False, "Debe proporcionar una justificación para el descuento"
+        
+        return True, ""
+    
+    @staticmethod
+    def generar_observaciones_automaticas(
+        valor_real: float,
+        valor_final: float,
+        justificacion: str = ""
+    ) -> str:
+        """
+        Genera observaciones automáticas según el valor final
+        
+        Args:
+            valor_real: Valor real del programa
+            valor_final: Valor final de la inscripción
+            justificacion: Justificación si hay descuento
+            
+        Returns:
+            Observaciones formateadas
+        """
+        if abs(valor_final - valor_real) < 0.01:
+            return "No se aplicó ningún descuento"
+        
+        porcentaje = ((valor_real - valor_final) / valor_real) * 100
+        return f"Se aplica un descuento de {porcentaje:.2f}% Justificación: {justificacion}".strip()
+    
+    @staticmethod
     def procesar_inscripcion(
         estudiante_id: int,
         programa_id: int,
-        descuento: float = 0.0,
+        valor_final: float,  # Cambiado de descuento a valor_final
         observaciones: Optional[str] = None,
         es_retroactiva: bool = False,
         fecha_retroactiva: Optional[date] = None
     ) -> Dict[str, Any]:
         """
-        Procesa una inscripción completa
+        Procesa una inscripción completa con validaciones
         
         Args:
-            estudiante_ci: CI del estudiante
-            programa_codigo: Código del programa
-            descuento: Descuento a aplicar
-            observaciones: Observaciones adicionales
+            estudiante_id: ID del estudiante
+            programa_id: ID del programa
+            valor_final: Valor final acordado para la inscripción
+            observaciones: Observaciones adicionales (debe incluir justificación si hay descuento)
             es_retroactiva: Si es inscripción retroactiva
             fecha_retroactiva: Fecha retroactiva (si aplica)
             
@@ -167,24 +239,49 @@ class InscripcionController(BaseController):
                 return verificacion
             
             data = verificacion['data']
-            estudiante = data['estudiante']
             programa = data['programa']
+            valor_real = float(programa['costo_total'] or 0)
             
-            # 2. Crear inscripción
+            # 2. Validar valor final
+            if valor_final <= 0:
+                return {
+                    'success': False,
+                    'message': 'El valor final debe ser mayor a 0'
+                }
+            
+            if valor_final > valor_real:
+                return {
+                    'success': False,
+                    'message': f'El valor final ({valor_final:.2f}) no puede ser mayor al valor real ({valor_real:.2f})'
+                }
+            
+            # 3. Validar observaciones según descuento
+            if observaciones:
+                valido, error = InscripcionController.validar_observaciones_con_descuento(
+                    valor_real, valor_final, observaciones
+                )
+                if not valido:
+                    return {
+                        'success': False,
+                        'message': error
+                    }
+            
+            # 4. Crear inscripción
             if es_retroactiva and fecha_retroactiva:
                 resultado = InscripcionModel.crear_inscripcion_retroactiva(
-                    estudiante_id=estudiante['id'],
-                    programa_id=programa['id'],
+                    estudiante_id=estudiante_id,
+                    programa_id=programa_id,
                     fecha_inscripcion=fecha_retroactiva,
-                    descuento_aplicado=descuento,
+                    valor_final=valor_final,  # Cambiado
                     observaciones=observaciones
                 )
             else:
                 resultado = InscripcionModel.crear_inscripcion(
-                    estudiante_id=estudiante['id'],
-                    programa_id=programa['id'],
-                    descuento_aplicado=descuento,
-                    observaciones=observaciones
+                    estudiante_id=estudiante_id,
+                    programa_id=programa_id,
+                    valor_final=valor_final,  # Cambiado
+                    observaciones=observaciones,
+                    fecha_inscripcion=None  # Usa fecha actual
                 )
             
             return resultado
@@ -194,6 +291,185 @@ class InscripcionController(BaseController):
             return {
                 'success': False,
                 'message': f'Error procesando inscripción: {str(e)}'
+            }
+    
+    @staticmethod
+    def actualizar_inscripcion(
+        inscripcion_id: int,
+        nuevo_estado: Optional[str] = None,
+        nuevo_valor_final: Optional[float] = None,  # Cambiado
+        nuevas_observaciones: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Actualiza una inscripción existente con validaciones
+        
+        Args:
+            inscripcion_id: ID de la inscripción
+            nuevo_estado: Nuevo estado
+            nuevo_valor_final: Nuevo valor final
+            nuevas_observaciones: Nuevas observaciones
+            
+        Returns:
+            Dict con resultado de la operación
+        """
+        try:
+            # Si se está actualizando el valor final, validar
+            if nuevo_valor_final is not None:
+                # Obtener información actual de la inscripción
+                from config.database import Database
+                connection = Database.get_connection()
+                if connection:
+                    cursor = connection.cursor()
+                    cursor.execute("""
+                        SELECT p.costo_total, i.valor_final, i.observaciones
+                        FROM inscripciones i
+                        JOIN programas p ON i.programa_id = p.id
+                        WHERE i.id = %s
+                    """, (inscripcion_id,))
+                    resultado = cursor.fetchone()
+                    cursor.close()
+                    Database.return_connection(connection)
+                    
+                    if resultado:
+                        valor_real = float(resultado[0] or 0)
+                        valor_actual = float(resultado[1] or 0)
+                        obs_actuales = resultado[2] or ""
+                        
+                        # Validar valor final
+                        if nuevo_valor_final <= 0:
+                            return {
+                                'success': False,
+                                'message': 'El valor final debe ser mayor a 0'
+                            }
+                        
+                        if nuevo_valor_final > valor_real:
+                            return {
+                                'success': False,
+                                'message': f'El valor final ({nuevo_valor_final:.2f}) no puede ser mayor al valor real ({valor_real:.2f})'
+                            }
+                        
+                        # Validar observaciones si se proporcionan nuevas
+                        obs_a_validar = nuevas_observaciones if nuevas_observaciones is not None else obs_actuales
+                        valido, error = InscripcionController.validar_observaciones_con_descuento(
+                            valor_real, nuevo_valor_final, obs_a_validar
+                        )
+                        if not valido:
+                            return {
+                                'success': False,
+                                'message': error
+                            }
+            
+            # Realizar la actualización
+            resultado = InscripcionModel.actualizar_inscripcion(
+                inscripcion_id=inscripcion_id,
+                nuevo_estado=nuevo_estado,
+                nuevo_valor_final=nuevo_valor_final,  # Cambiado
+                nuevas_observaciones=nuevas_observaciones
+            )
+            
+            return resultado
+            
+        except Exception as e:
+            logger.error(f"Error actualizando inscripción: {e}")
+            return {
+                'success': False,
+                'message': f'Error actualizando inscripción: {str(e)}'
+            }
+    
+    @staticmethod
+    def obtener_inscripcion_para_edicion(inscripcion_id: int) -> Dict[str, Any]:
+        """
+        Obtiene los datos de una inscripción para edición, verificando si requiere
+        completar justificación
+        
+        Args:
+            inscripcion_id: ID de la inscripción
+            
+        Returns:
+            Dict con datos de la inscripción y bandera de requiere_completar
+        """
+        try:
+            from config.database import Database
+            connection = Database.get_connection()
+            if not connection:
+                return {
+                    'success': False,
+                    'message': 'Error de conexión'
+                }
+            
+            cursor = connection.cursor()
+            query = """
+            SELECT 
+                i.id,
+                i.estudiante_id,
+                i.programa_id,
+                i.fecha_inscripcion,
+                i.estado,
+                i.valor_final,
+                i.observaciones,
+                p.costo_total as valor_real,
+                p.codigo as programa_codigo,
+                p.nombre as programa_nombre,
+                CONCAT(e.nombres, ' ', e.apellido_paterno) as estudiante_nombre
+            FROM inscripciones i
+            JOIN programas p ON i.programa_id = p.id
+            JOIN estudiantes e ON i.estudiante_id = e.id
+            WHERE i.id = %s
+            """
+            
+            cursor.execute(query, (inscripcion_id,))
+            resultado = cursor.fetchone()
+            
+            if not resultado:
+                cursor.close()
+                Database.return_connection(connection)
+                return {
+                    'success': False,
+                    'message': f'No se encontró la inscripción {inscripcion_id}'
+                }
+                
+            if cursor.description is None:
+                cursor.close()
+                Database.return_connection(connection)
+                return {
+                    'success': False,
+                    'message': 'Error al obtener datos de la inscripción'
+                }
+            
+            column_names = [desc[0] for desc in cursor.description]
+            inscripcion = dict(zip(column_names, resultado))
+            
+            cursor.close()
+            Database.return_connection(connection)
+            
+            # Verificar si requiere completar justificación
+            requiere_completar = False
+            valor_real = float(inscripcion['valor_real'] or 0)
+            valor_final = float(inscripcion['valor_final'] or valor_real)
+            observaciones = inscripcion['observaciones'] or ""
+            
+            if valor_final < valor_real and abs(valor_final - valor_real) >= 0.01:
+                # Hay descuento, verificar si la justificación está completa
+                if "Justificación:" in observaciones:
+                    partes = observaciones.split("Justificación:")
+                    if len(partes) > 1 and partes[1].strip() == "":
+                        requiere_completar = True
+                else:
+                    requiere_completar = True
+            
+            inscripcion['requiere_completar'] = requiere_completar
+            inscripcion['valor_real'] = valor_real
+            
+            return {
+                'success': True,
+                'data': inscripcion
+            }
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo inscripción para edición: {e}")
+            return {
+                'success': False,
+                'message': str(e)
             }
     
     @staticmethod
