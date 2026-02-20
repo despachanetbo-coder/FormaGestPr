@@ -1,0 +1,51 @@
+==========================================
+           COMPROBANTE DE PAGO
+==========================================
+
+              FORMA GEST PRO
+       Sistema de Gesti¢n Acad‚mica
+
+------------------------------------------
+         DATOS DE LA TRANSACCIàN
+------------------------------------------
+Nø Transacci¢n: T-2026-000001             
+Fecha: 19/01/2026 01:46:43                
+
+------------------------------------------
+           DATOS DEL ESTUDIANTE
+------------------------------------------
+Estudiante: Luis Jhamil Colque Condori    
+CI: 8505280 PT                            
+
+------------------------------------------
+                 PROGRAMA
+------------------------------------------
+Programa: DIP-EDU-2026-II - Educaci¢n Superior b
+
+------------------------------------------
+             DETALLE DE PAGOS
+------------------------------------------
+Concepto        Cant.   P.Unit Subtotal
+------------------------------------------
+Inscripci¢n         1    50.00    50.00
+  Inscripci¢n al programa
+Matr¡cula           1   200.00   200.00
+  Matr¡cula de inscripci¢n
+Mensualidad         1   650.00   650.00
+  Pago de mensualidad
+------------------------------------------
+                         TOTAL Bs.: 900.00
+Forma de Pago: EFECTIVO                   
+
+==========================================
+          ­GRACIAS POR SU PAGO!
+ Este documento es un comprobante v lido
+     Conserve para cualquier reclamo
+==========================================
+
+        _________________________
+             Firma Autorizada
+
+
+i
+d

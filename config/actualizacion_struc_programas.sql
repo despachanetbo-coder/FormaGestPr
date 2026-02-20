@@ -778,3 +778,83 @@ EXCEPTION WHEN OTHERS THEN
     );
 END;
 $$ LANGUAGE plpgsql;
+
+-- Agregar columna tipo_movimiento a transacciones si no existe
+ALTER TABLE transacciones 
+ADD COLUMN IF NOT EXISTS tipo_movimiento VARCHAR(20) DEFAULT 'INGRESO';
+
+-- Función para registrar movimiento de caja cuando se confirma una transacción
+CREATE OR REPLACE FUNCTION fn_registrar_movimiento_caja()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_descripcion TEXT;
+    v_inscripcion_id TEXT;
+BEGIN
+    -- Solo insertar cuando el estado cambia a 'CONFIRMADO' 
+    -- (asumiendo que 'CONFIRMADO' es el estado final)
+    IF (TG_OP = 'INSERT' AND NEW.estado = 'CONFIRMADO') OR 
+       (TG_OP = 'UPDATE' AND OLD.estado != 'CONFIRMADO' AND NEW.estado = 'CONFIRMADO') THEN
+        
+        -- Extraer inscripción_id de las observaciones si existe
+        -- Formato esperado: "Pago Inscripción #17"
+        v_inscripcion_id := substring(NEW.observaciones from 'Inscripción #(\d+)');
+        
+        -- Construir descripción detallada
+        v_descripcion := 'Pago de inscripción';
+        
+        IF v_inscripcion_id IS NOT NULL THEN
+            v_descripcion := v_descripcion || ' #' || v_inscripcion_id;
+        END IF;
+        
+        v_descripcion := v_descripcion || ' - Transacción: ' || NEW.numero_transaccion;
+        
+        IF NEW.observaciones IS NOT NULL AND NEW.observaciones != '' THEN
+            v_descripcion := v_descripcion || ' - ' || NEW.observaciones;
+        END IF;
+        
+        -- Limitar longitud de descripción si es necesario (varchar sin límite específico)
+        v_descripcion := left(v_descripcion, 255);
+        
+        -- Insertar en movimientos_caja
+        INSERT INTO movimientos_caja (
+            fecha,
+            tipo,
+            transaccion_id,
+            monto,
+            forma_pago,
+            descripcion,
+            usuario_id,
+            created_at
+        ) VALUES (
+            COALESCE(NEW.fecha_pago, CURRENT_DATE),
+            'INGRESO',  -- Todas las transacciones de pago son ingresos
+            NEW.id,
+            NEW.monto_final,
+            NEW.forma_pago,
+            v_descripcion,
+            NEW.registrado_por,
+            CURRENT_TIMESTAMP
+        );
+        
+        RAISE NOTICE '✅ Movimiento de caja registrado para transacción %', NEW.id;
+        
+    -- Para cuando se anula una transacción (opcional)
+    ELSIF (TG_OP = 'UPDATE' AND OLD.estado = 'CONFIRMADO' AND NEW.estado = 'ANULADO') THEN
+        -- Aquí podrías registrar un movimiento de anulación si lo deseas
+        -- Por ejemplo, insertar un movimiento negativo o marcar como anulado
+        RAISE NOTICE 'ℹ️ Transacción % anulada - No se registra movimiento', NEW.id;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Eliminar trigger si existe
+DROP TRIGGER IF EXISTS tr_registrar_movimiento_caja ON transacciones;
+
+-- Crear el trigger
+CREATE TRIGGER tr_registrar_movimiento_caja
+    AFTER INSERT OR UPDATE OF estado
+    ON transacciones
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_registrar_movimiento_caja();

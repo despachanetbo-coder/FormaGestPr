@@ -1111,7 +1111,7 @@ class TransaccionOverlay(BaseOverlay):
     def _finalizar(self):
         """Finalizar el registro de la transacción"""
         logger.info("🏁 Finalizando transacción")
-
+        
         if not self.detalles_temporales:
             logger.warning("Intento de finalizar sin detalles")
             self.mostrar_mensaje(
@@ -1120,29 +1120,31 @@ class TransaccionOverlay(BaseOverlay):
                 "warning"
             )
             return
-
+        
         # Guardar los detalles en la base de datos (ya están guardados individualmente)
         logger.info(f"Guardando {len(self.detalles_temporales)} detalles para transacción {self.transaccion_id}")
-
-        # Actualizar montos finales en la transacción (por si acaso)
+        
+        # Actualizar montos finales en la transacción y cambiar estado a CONFIRMADO
         total_detalles = sum(d.get('subtotal', 0) for d in self.detalles_temporales)
         if self.transaccion_id:
+            # Cambiar estado a CONFIRMADO para activar el trigger
             datos_actualizacion = {
                 'id': self.transaccion_id,
                 'monto_total': total_detalles,
-                'monto_final': total_detalles
+                'monto_final': total_detalles,
+                'estado': 'CONFIRMADO'  # <-- ESTADO QUE ACTIVA EL TRIGGER
             }
             TransaccionModel.actualizar(self.transaccion_id, datos_actualizacion)
-
-        # Cambiar a modo visualización (esto mantiene los datos visibles pero no editables)
+        
+        # Cambiar a modo visualización
         self._activar_modo_visualizacion()
-
+        
         # Emitir señal
         self.detalles_registrados.emit(self.transaccion_id)
-
+        
         self.mostrar_mensaje(
             "Éxito",
-            "Transacción finalizada correctamente. Ahora solo puede visualizarse.",
+            "Transacción finalizada correctamente. Movimiento de caja registrado.",
             "success"
         )
     
@@ -1153,13 +1155,280 @@ class TransaccionOverlay(BaseOverlay):
         logger.info(f"Guardando {len(self.detalles_temporales)} detalles para transacción {self.transaccion_id}")
     
     def _ver_comprobante(self):
-        """Generar y mostrar comprobante de la transacción"""
+        """Generar y mostrar/ imprimir comprobante de la transacción"""
         logger.info("Solicitando ver comprobante")
-        self.mostrar_mensaje(
-            "Comprobante",
-            "Funcionalidad de comprobante en desarrollo",
-            "info"
-        )
+        
+        if not self.transaccion_id:
+            self.mostrar_mensaje("Error", "No hay una transacción activa", "error")
+            return
+        
+        try:
+            from utils.comprobante_generator import ComprobanteGenerator
+            
+            # Obtener datos actualizados de la transacción
+            resultado = TransaccionModel.obtener_por_id(self.transaccion_id)
+            if not resultado.get('success'):
+                self.mostrar_mensaje("Error", "No se pudo obtener la transacción", "error")
+                return
+            
+            transaccion = resultado.get('data', {})
+            
+            # Obtener detalles de la transacción
+            from model.detalle_transaccion_model import DetalleTransaccionModel
+            resultado_detalles = DetalleTransaccionModel.listar_por_transaccion(self.transaccion_id)
+            detalles = resultado_detalles.get('data', []) if resultado_detalles.get('success') else []
+            
+            # Obtener datos de la inscripción si es necesario
+            inscripcion = None
+            if self.inscripcion_id:
+                from model.inscripcion_model import InscripcionModel
+                resultado_insc = InscripcionModel.obtener_detalle_inscripcion(self.inscripcion_id)
+                if resultado_insc.get('success'):
+                    inscripcion = resultado_insc
+            
+            # Generar comprobante
+            comprobante = ComprobanteGenerator.generar_comprobante(
+                transaccion=transaccion,
+                detalles=detalles,
+                inscripcion=inscripcion
+            )
+            
+            # Mostrar diálogo de vista previa y opciones de impresión
+            self._mostrar_dialogo_comprobante(comprobante)
+            
+        except Exception as e:
+            logger.error(f"Error generando comprobante: {e}")
+            self.mostrar_mensaje("Error", f"No se pudo generar el comprobante: {str(e)}", "error")
+    
+    def _mostrar_dialogo_comprobante(self, comprobante: str):
+        """Mostrar diálogo con vista previa y opciones de impresión"""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, 
+                                        QTextEdit, QPushButton, QComboBox, 
+                                        QLabel, QSizePolicy, QApplication, QSpacerItem)
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QFont
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("🖨️ Vista Previa - Comprobante de Pago")
+        dialog.setModal(True)
+        dialog.setMinimumSize(650, 700)  # Altura reducida porque text_edit tendrá altura fija
+        dialog.setMaximumHeight(800)  # Altura máxima para evitar que se estire demasiado
+
+        # Layout principal VERTICAL
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # ===== LÍNEA 1: ARRIBA - Selección de impresora =====
+        printer_layout = QHBoxLayout()
+        printer_layout.setSpacing(10)
+
+        lbl_impresora = QLabel("🖨️ Seleccione impresora:")
+        lbl_impresora.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                font-size: 13px;
+                color: #2c3e50;
+            }
+        """)
+        printer_layout.addWidget(lbl_impresora)
+
+        from utils.comprobante_generator import ComprobanteGenerator
+        impresoras = ComprobanteGenerator.obtener_impresoras()
+
+        self.printer_combo = QComboBox()
+        self.printer_combo.addItems(impresoras if impresoras else ["Impresora predeterminada"])
+        self.printer_combo.setMinimumWidth(300)
+        self.printer_combo.setMinimumHeight(35)
+        self.printer_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 13px;
+                padding: 5px 10px;
+                border: 2px solid #3498db;
+                border-radius: 5px;
+                background-color: white;
+            }
+            QComboBox:hover {
+                border: 2px solid #2980b9;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #2c3e50;
+                margin-right: 5px;
+            }
+        """)
+        printer_layout.addWidget(self.printer_combo)
+        printer_layout.addStretch()
+
+        layout.addLayout(printer_layout)
+
+        # ===== Espacio fijo entre línea 1 y línea 2 =====
+        layout.addSpacing(10)
+
+        # ===== LÍNEA 2: MEDIO - Vista previa del comprobante =====
+        text_edit = QTextEdit()
+        text_edit.setPlainText(comprobante)
+        text_edit.setFont(QFont("Courier New", 11))
+        text_edit.setReadOnly(True)
+
+        # ALTURA FIJA - NO EXPANDIBLE
+        text_edit.setFixedHeight(450)  # Altura fija de 450px
+        text_edit.setMinimumWidth(600)
+
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                padding: 12px;
+                background-color: #f8f9fa;
+                font-family: 'Courier New';
+                line-height: 1.4;
+            }
+            QTextEdit:focus {
+                border: 2px solid #3498db;
+            }
+        """)
+
+        # NO USAR EXPANDING - usar Preferred para que mantenga su altura fija
+        text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Agregar el text_edit al layout
+        layout.addWidget(text_edit, 0, Qt.AlignmentFlag.AlignTop)  # Alineado arriba
+
+        # ===== Espacio flexible entre línea 2 y línea 3 =====
+        # Este spacer empujará los botones hacia abajo
+        layout.addStretch(1)
+
+        # ===== LÍNEA 3: ABAJO - Botones de acción =====
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+        button_layout.setContentsMargins(0, 10, 0, 0)
+
+        # Botón IMPRIMIR
+        btn_imprimir = QPushButton("🖨️ IMPRIMIR")
+        btn_imprimir.setMinimumHeight(50)
+        btn_imprimir.setMinimumWidth(180)
+        btn_imprimir.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_imprimir.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 12px 25px;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+            QPushButton:pressed {
+                background-color: #229954;
+                padding-top: 13px;
+                padding-bottom: 11px;
+            }
+        """)
+
+        # Botón GUARDAR
+        btn_guardar = QPushButton("💾 GUARDAR ARCHIVO")
+        btn_guardar.setMinimumHeight(50)
+        btn_guardar.setMinimumWidth(180)
+        btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_guardar.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 12px 25px;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #1f618d;
+                padding-top: 13px;
+                padding-bottom: 11px;
+            }
+        """)
+
+        # Botón CANCELAR
+        btn_cancelar = QPushButton("❌ CANCELAR")
+        btn_cancelar.setMinimumHeight(50)
+        btn_cancelar.setMinimumWidth(180)
+        btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancelar.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 12px 25px;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:pressed {
+                background-color: #a93226;
+                padding-top: 13px;
+                padding-bottom: 11px;
+            }
+        """)
+
+        button_layout.addStretch()
+        button_layout.addWidget(btn_imprimir)
+        button_layout.addWidget(btn_guardar)
+        button_layout.addWidget(btn_cancelar)
+        button_layout.addStretch()
+
+        layout.addLayout(button_layout)
+
+        # ===== CONEXIONES DE SEÑALES =====
+        def on_imprimir():
+            printer_name = self.printer_combo.currentText()
+            if printer_name == "Impresora predeterminada":
+                printer_name = None
+
+            exito = ComprobanteGenerator.imprimir(comprobante, printer_name)
+            if exito:
+                self.mostrar_mensaje("✅ Éxito", "Comprobante enviado a impresora", "success")
+                dialog.accept()
+            else:
+                self.mostrar_mensaje("❌ Error", "No se pudo imprimir el comprobante", "error")
+
+        def on_guardar():
+            exito = ComprobanteGenerator._guardar_archivo(comprobante)
+            if exito:
+                self.mostrar_mensaje("✅ Éxito", "Comprobante guardado en carpeta 'comprobantes'", "success")
+                dialog.accept()
+            else:
+                self.mostrar_mensaje("❌ Error", "No se pudo guardar el comprobante", "error")
+
+        btn_imprimir.clicked.connect(on_imprimir)
+        btn_guardar.clicked.connect(on_guardar)
+        btn_cancelar.clicked.connect(dialog.reject)
+
+        # Centrar el diálogo
+        dialog.adjustSize()
+
+        # Obtener geometría de la pantalla y centrar
+        screen_geometry = QApplication.primaryScreen().geometry()
+        dialog_geometry = dialog.geometry()
+        x = (screen_geometry.width() - dialog_geometry.width()) // 2
+        y = (screen_geometry.height() - dialog_geometry.height()) // 2
+        dialog.move(x, y)
+
+        dialog.exec()
     
     def _recargar_transaccion(self):
         """Recargar los datos de la transacción desde la base de datos"""
@@ -1340,23 +1609,23 @@ class TransaccionOverlay(BaseOverlay):
         """Mostrar el formulario - Override del método base"""
         self.solo_lectura = solo_lectura
         logger.info(f"🔵 Mostrando formulario - modo: {self.modo}, solo_lectura: {solo_lectura}, inscripcion_id: {self.inscripcion_id}")
-    
+
         # Si es modo visualización, forzar solo_lectura=True
         if self.modo == "visualizar":
             self.solo_lectura = True
-    
+
         # Si es modo edición y tenemos transacción_id, cargar los datos
         if self.modo in ["editar", "visualizar"] and self.transaccion_id:
             logger.info(f"📥 Modo {self.modo}: cargando datos de transacción {self.transaccion_id}")
             self._cargar_datos_transaccion()
-            
+
             # Si es modo visualizar, activar modo visualización después de cargar
             if self.modo == "visualizar":
                 self._activar_modo_visualizacion()
-    
+
         # Usar el método show_form de BaseOverlay
         super().show_form(solo_lectura)
-    
+
         # Si es modo nuevo y tenemos inscripción, crear la transacción automáticamente
         if self.modo == "nuevo" and all([self.inscripcion_id, self.programa_id, self.estudiante_id]):
             QTimer.singleShot(100, self._crear_transaccion_automatica)
