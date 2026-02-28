@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
             "Herramientas de análisis de datos",
             user_data=self.user_data  # Pasar user_data
         )
-        self._add_tab_to_widget(analisis_tab, 1)
+        #self._add_tab_to_widget(analisis_tab, 1)
         
         # Pestaña 4: Reportes
         reportes_tab = ResumenTab(user_data=self.user_data)
@@ -123,7 +123,7 @@ class MainWindow(QMainWindow):
             "Aquí va la configuración de la aplicación",
             user_data=self.user_data  # Pasar user_data
         )
-        self._add_tab_to_widget(config_tab, 3)
+        #self._add_tab_to_widget(config_tab, 3)
         
         # Pestaña 6: Ayuda
         ayuda_tab = AyudaTab(user_data=self.user_data)

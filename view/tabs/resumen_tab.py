@@ -344,7 +344,7 @@ class ResumenTab(BaseTab):
             logger.info("Cargando datos iniciales del resumen...")
             
             # USAR EL MODELO DE RESUMEN EXISTENTE (CAMBIO PRINCIPAL)
-            self.resumen_data = self.resumen_model.obtener_datos_dashboard()
+            self.resumen_data = self.resumen_model.obtener_datos_completos_dashboard()
             
             # Si no hay datos del modelo, usar métodos individuales
             if not self.resumen_data or 'total_estudiantes' not in self.resumen_data:
