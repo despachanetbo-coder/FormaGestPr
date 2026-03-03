@@ -570,6 +570,69 @@ class TransaccionModel:
         )
     
     @classmethod
+    def obtener_totales_reales_programa(cls, programa_id: int) -> Dict[str, Any]:
+        """
+        Obtener totales reales de transacciones para un programa específico
+        
+        Args:
+            programa_id: ID del programa
+            
+        Returns:
+            Dict con totales: monto_total, cantidad_transacciones, etc.
+        """
+        try:
+            query = """
+                SELECT 
+                    COALESCE(SUM(t.monto_final), 0) as monto_total_pagado,
+                    COUNT(*) as cantidad_transacciones,
+                    COUNT(DISTINCT t.estudiante_id) as estudiantes_con_pagos,
+                    COALESCE(SUM(CASE WHEN t.estado = 'CONFIRMADO' THEN t.monto_final ELSE 0 END), 0) as monto_confirmado,
+                    MIN(t.fecha_pago) as primer_pago,
+                    MAX(t.fecha_pago) as ultimo_pago
+                FROM transacciones t
+                WHERE t.programa_id = %s
+                AND t.estado NOT IN ('ANULADO')
+            """
+            
+            connection = None
+            cursor = None
+            try:
+                connection = cls._get_connection()
+                if not connection:
+                    return {'success': False, 'error': 'No se pudo conectar a la base de datos'}
+                
+                from psycopg2.extras import RealDictCursor
+                cursor = connection.cursor(cursor_factory=RealDictCursor)
+                cursor.execute(query, (programa_id,))
+                result = cursor.fetchone()
+                
+                return {
+                    'success': True, 
+                    'data': dict(result) if result else {
+                        'monto_total_pagado': 0,
+                        'cantidad_transacciones': 0,
+                        'estudiantes_con_pagos': 0,
+                        'monto_confirmado': 0,
+                        'primer_pago': None,
+                        'ultimo_pago': None
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"Error obteniendo totales reales para programa {programa_id}: {e}")
+                return {'success': False, 'error': str(e)}
+                
+            finally:
+                if cursor:
+                    cursor.close()
+                if connection:
+                    cls._return_connection(connection)
+                    
+        except Exception as e:
+            logger.error(f"Error en obtener_totales_reales_programa: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    @classmethod
     def listar_por_fecha(cls, fecha_inicio: str, fecha_fin: str,
                         limite: int = 1000, offset: int = 0) -> Dict[str, Any]:
         """Listar transacciones en un rango de fechas"""
@@ -1278,7 +1341,7 @@ class TransaccionModel:
     # Funciones de utilidad para manejo de transacciones complejas
     @classmethod
     def crear_transaccion_con_detalles(cls, datos_transaccion: Dict[str, Any], 
-                                       items_detalle: List[Dict[str, Any]]) -> Dict[str, Any]:
+                                        items_detalle: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Crear una transacción con sus detalles (función de ejemplo para transacciones complejas)
         Esta función demuestra cómo manejar múltiples operaciones en una transacción

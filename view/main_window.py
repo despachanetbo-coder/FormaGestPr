@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
         
         # ✅ Almacenar datos del usuario
         self.user_data = user_data or {}
+        self.usuario_actual_id = self.user_data.get('id')
         
         self.base_qss_file = base_qss
         self.color_qss_file = color_qss
@@ -183,7 +184,7 @@ class MainWindow(QMainWindow):
         if self.overlay_programa is None:
             try:
                 from .overlays.programa_overlay import ProgramaOverlay
-                self.overlay_programa = ProgramaOverlay(self)
+                self.overlay_programa = ProgramaOverlay(self, usuario_id=self.usuario_actual_id)
 
                 # Conectar señales de datos
                 self.overlay_programa.programa_guardado.connect(self._on_programa_guardado)
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
                     lambda: self._on_overlay_closed(self.overlay_programa)
                 )
 
-                print("✅ ProgramaOverlay inicializado")
+                print("✅ ProgramaOverlay inicializado con usuario_id:", self.usuario_actual_id)
             except ImportError as e:
                 print(f"❌ No se pudo importar ProgramaOverlay: {e}")
                 self.overlay_programa = None
@@ -205,16 +206,19 @@ class MainWindow(QMainWindow):
         if self.overlay_estudiante is None:
             try:
                 from .overlays.estudiante_overlay import EstudianteOverlay
-                self.overlay_estudiante = EstudianteOverlay(self)
+                self.overlay_estudiante = EstudianteOverlay(self, usuario_id=self.usuario_actual_id)
+                
                 # Conectar señales de datos
                 self.overlay_estudiante.estudiante_creado.connect(self._on_estudiante_guardado)
                 self.overlay_estudiante.estudiante_actualizado.connect(self._on_estudiante_actualizado)
                 self.overlay_estudiante.estudiante_eliminado.connect(self._on_estudiante_eliminado)
+                
                 # Conectar señal de cierre UNA VEZ
                 self.overlay_estudiante.overlay_closed.connect(
                     lambda: self._on_overlay_closed(self.overlay_estudiante)
                 )
-                print("✅ EstudianteOverlay inicializado")
+                
+                print("✅ EstudianteOverlay inicializado con usuario_id:", self.usuario_actual_id)
             except ImportError as e:
                 print(f"❌ No se pudo importar EstudianteOverlay: {e}")
                 self.overlay_estudiante = None
@@ -224,16 +228,19 @@ class MainWindow(QMainWindow):
         if self.overlay_docente is None:
             try:
                 from .overlays.docente_overlay import DocenteOverlay
-                self.overlay_docente = DocenteOverlay(self)
+                self.overlay_docente = DocenteOverlay(self, usuario_id=self.usuario_actual_id)
+                
                 # Conectar señales de datos
                 self.overlay_docente.docente_creado.connect(self._on_docente_guardado)
                 self.overlay_docente.docente_actualizado.connect(self._on_docente_actualizado)
                 self.overlay_docente.docente_eliminado.connect(self._on_docente_eliminado)
+                
                 # Conectar señal de cierre UNA VEZ
                 self.overlay_docente.overlay_closed.connect(
                     lambda: self._on_overlay_closed(self.overlay_docente)
                 )
-                print("✅ DocenteOverlay inicializado")
+                
+                print("✅ DocenteOverlay inicializado con usuario_id:", self.usuario_actual_id)
             except ImportError as e:
                 print(f"❌ No se pudo importar DocenteOverlay: {e}")
                 self.overlay_docente = None
@@ -640,7 +647,7 @@ class MainWindow(QMainWindow):
                 return
 
             # Crear nuevo overlay
-            overlay_lectura = ProgramaOverlay(self)
+            overlay_lectura = ProgramaOverlay(self, usuario_id=self.usuario_actual_id)
 
             # Conectar señales
             overlay_lectura.programa_actualizado.connect(self._on_programa_actualizado)

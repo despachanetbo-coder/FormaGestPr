@@ -60,8 +60,11 @@ class InscripcionOverlay(BaseOverlay):
     
     # ===== MÉTODOS DE INICIALIZACIÓN =====
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, usuario_id=None):
         super().__init__(parent, "🎓 Gestión de Inscripción", 95, 95)
+        
+        # ✅ Guardar usuario_id
+        self.usuario_actual_id = usuario_id
         
         # Variables de estado
         self.inscripcion_id: Optional[int] = None
@@ -2170,7 +2173,8 @@ class InscripcionOverlay(BaseOverlay):
                 inscripcion_id=inscripcion_id,
                 estudiante_id=estudiante_id,
                 programa_id=programa_id,
-                modo="visualizar"  # Nuevo modo
+                modo="visualizar",
+                usuario_id=self.usuario_actual_id # type: ignore
             )
 
             # Cargar los datos de la transacción existente
@@ -2242,7 +2246,8 @@ class InscripcionOverlay(BaseOverlay):
                     inscripcion_id=int(inscripcion_id),
                     estudiante_id=int(estudiante_id),
                     programa_id=int(programa_id),
-                    modo="nuevo"
+                    modo="nuevo",
+                    usuario_id=self.usuario_actual_id # type: ignore
                 )
                 
                 # Conectar señal de éxito
@@ -2284,7 +2289,8 @@ class InscripcionOverlay(BaseOverlay):
                 inscripcion_id=inscripcion_id,
                 estudiante_id=estudiante_id,
                 programa_id=programa_id,
-                modo="editar"  # Modo edición
+                modo="editar",
+                usuario_id=self.usuario_actual_id # type: ignore
             )
 
             # Cargar los datos de la transacción existente

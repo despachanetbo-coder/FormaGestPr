@@ -42,8 +42,12 @@ class DocenteOverlay(BaseOverlay):
     docente_actualizado = Signal(dict)
     docente_eliminado = Signal(dict)
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, usuario_id=None):
         super().__init__(parent, "👨‍🏫 Gestión de Docente", 95, 95)
+        
+        # ✅ Guardar usuario_id
+        self.usuario_actual_id = usuario_id
+        logger.info(f"🔵 DocenteOverlay inicializado con usuario_id: {usuario_id}")
         
         # Variables específicas
         self.docente_id: Optional[int] = None
@@ -414,12 +418,18 @@ class DocenteOverlay(BaseOverlay):
             # Obtener datos del formulario
             datos = self.obtener_datos()
             
+            # ✅ Agregar usuario_id a los datos si es necesario
+            if self.usuario_actual_id:
+                datos['registrado_por'] = self.usuario_actual_id
+                datos['actualizado_por'] = self.usuario_actual_id
+            
             # Determinar si es creación o actualización
             if self.modo == "nuevo":
                 # Crear nuevo docente
                 nuevo_id = DocenteModel.crear_docente(datos)
                 if nuevo_id:
                     datos['id'] = nuevo_id
+                    datos['usuario_id'] = self.usuario_actual_id
                     self.mostrar_mensaje("Éxito", "Docente creado exitosamente", "success")
                     self.docente_creado.emit(datos)
                     self.close_overlay()
@@ -430,6 +440,7 @@ class DocenteOverlay(BaseOverlay):
                 # Actualizar docente existente
                 datos['id'] = self.docente_id
                 if DocenteModel.actualizar_docente(self.docente_id, datos):
+                    datos['usuario_id'] = self.usuario_actual_id
                     self.mostrar_mensaje("Éxito", "Docente actualizado exitosamente", "success")
                     self.docente_actualizado.emit(datos)
                     self.close_overlay()

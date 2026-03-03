@@ -47,7 +47,7 @@ class EstudianteOverlay(BaseOverlay):
     pago_registrado = Signal(dict)  # Datos de pago registrado
     apertura_visualizacion = Signal(int)  # ID del estudiante para visualizar
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, usuario_id=None):
         """Inicializar overlay de estudiante"""
         super().__init__(
             parent=parent,
@@ -55,6 +55,10 @@ class EstudianteOverlay(BaseOverlay):
             ancho_porcentaje=AppConstants.OVERLAY_WIDTH_PERCENT,
             alto_porcentaje=AppConstants.OVERLAY_HEIGHT_PERCENT
         )
+        
+        # ✅ Guardar usuario_id
+        self.usuario_actual_id = usuario_id
+        logger.info(f"🔵 EstudianteOverlay inicializado con usuario_id: {usuario_id}")
         
         # Datos del estudiante
         self.estudiante_id = None
@@ -1031,7 +1035,10 @@ class EstudianteOverlay(BaseOverlay):
             from view.overlays.inscripcion_overlay import InscripcionOverlay
             
             # Crear el overlay usando self como parent
-            inscripcion_overlay = InscripcionOverlay(self)
+            inscripcion_overlay = InscripcionOverlay(
+                self, 
+                usuario_id=self.usuario_actual_id  # ✅ Pasar usuario_id
+            )
             
             # Configurar
             inscripcion_overlay.show_form(

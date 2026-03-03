@@ -37,6 +37,8 @@ class ConfiguracionesModel:
             cursor = connection.cursor()
             
             cursor.callproc('fn_insertar_configuracion', (clave, valor, descripcion, tipo, categoria, editable))
+            if not cursor:
+                raise Exception("No se pudo ejecutar el procedimiento almacenado")
             result = cursor.fetchone()[0]
             
             connection.commit()

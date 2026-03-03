@@ -23,6 +23,8 @@ class ResumenModel:
     
     def obtener_metricas_principales(self) -> Dict[str, Any]:
         """Obtener métricas principales del sistema"""
+        connection = None
+        cursor = None
         try:
             connection = self.db.get_connection()
             if not connection:
@@ -31,6 +33,7 @@ class ResumenModel:
             
             cursor = connection.cursor()
             fecha_inicio_mes = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
             año_actual = datetime.now().year
             
             # 1. Total estudiantes activos
@@ -167,7 +170,10 @@ class ResumenModel:
     
     def obtener_programas_en_progreso(self, limite: int = 10) -> List[Dict]:
         """Obtener programas en progreso con detalles"""
+        connection = None
+        cursor = None
         try:
+            
             connection = self.db.get_connection()
             if not connection:
                 logger.error("No se pudo obtener conexión a la base de datos")

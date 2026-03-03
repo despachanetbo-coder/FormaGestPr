@@ -55,6 +55,7 @@ class InicioTab(BaseTab):
         )
         
         self.user_data = user_data or {}
+        self.usuario_actual_id = self.user_data.get('id')
         
         # Estado inicial
         self.current_view = "estudiantes"  # Vista activa
@@ -1198,7 +1199,12 @@ class InicioTab(BaseTab):
         if main_window:
             try:
                 from view.overlays.inscripcion_overlay import InscripcionOverlay
-                overlay = InscripcionOverlay(main_window)
+                
+                # ✅ PASAR usuario_id al crear InscripcionOverlay
+                overlay = InscripcionOverlay(
+                    main_window,
+                    usuario_id=self.usuario_actual_id  # <-- IMPORTANTE
+                )
 
                 # Configurar overlay para mostrar todas las inscripciones del estudiante
                 overlay.show_form(
@@ -1234,7 +1240,11 @@ class InicioTab(BaseTab):
         if main_window:
             try:
                 from view.overlays.inscripcion_overlay import InscripcionOverlay
-                overlay = InscripcionOverlay(main_window)
+                overlay = InscripcionOverlay(
+                    main_window, 
+                    usuario_id=self.usuario_actual_id
+                    )
+                
                 overlay.show_form(
                     modo="nuevo",
                     estudiante_id=estudiante_id
@@ -1551,6 +1561,13 @@ class InicioTab(BaseTab):
         if main_window:
             try:
                 from view.overlays.inscripcion_overlay import InscripcionOverlay
+                
+                # ✅ PASAR usuario_id al crear InscripcionOverlay
+                overlay = InscripcionOverlay(
+                    main_window,
+                    usuario_id=self.usuario_actual_id  # <-- IMPORTANTE
+                )
+                
                 overlay = InscripcionOverlay(main_window)
                 overlay.show_form(
                     modo="nuevo",

@@ -187,7 +187,8 @@ class TransaccionOverlay(BaseOverlay):
                 inscripcion_id: int = None,  # type:ignore
                 programa_id: int = None,  # type:ignore
                 estudiante_id: int = None, # type:ignore
-                modo: str = "nuevo"):  # "nuevo", "editar", "visualizar"
+                modo: str = "nuevo",  # "nuevo", "editar", "visualizar"
+                usuario_id: int = None): # type:ignore
         """
         Inicializar overlay de transacción
 
@@ -200,10 +201,11 @@ class TransaccionOverlay(BaseOverlay):
             programa_id: ID de programa
             estudiante_id: ID de estudiante
             modo: "nuevo", "editar" o "visualizar"
+            usuario_id: ID del usuario actual (desde login)
         """
         super().__init__(parent, titulo, ancho_porcentaje, alto_porcentaje)
 
-        logger.info(f"🔵 INICIALIZANDO TransaccionOverlay - inscripcion_id: {inscripcion_id}, modo: {modo}")
+        logger.info(f"🔵 INICIALIZANDO TransaccionOverlay - inscripcion_id: {inscripcion_id}, modo: {modo}, usuario_id: {usuario_id}")
 
         # Datos de la transacción
         self.transaccion_id: Optional[int] = None
@@ -211,6 +213,7 @@ class TransaccionOverlay(BaseOverlay):
         self.programa_id = programa_id
         self.estudiante_id = estudiante_id
         self.modo = modo
+        self.usuario_id = usuario_id
         
         self.datos_inscripcion: Optional[Dict] = None
         self.datos_programa: Optional[Dict] = None
@@ -305,7 +308,7 @@ class TransaccionOverlay(BaseOverlay):
                 font-weight: bold;
                 color: #1a237e;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                           stop:0 #e8eaf6, stop:1 #c5cae9);
+                                            stop:0 #e8eaf6, stop:1 #c5cae9);
                 padding: 12px 15px;
                 border-radius: 8px;
                 margin: 0px;
@@ -426,7 +429,7 @@ class TransaccionOverlay(BaseOverlay):
         self.lbl_monto_final.setStyleSheet("""
             QLabel {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                           stop:0 #e8f5e8, stop:1 #c8e6c9);
+                                            stop:0 #e8f5e8, stop:1 #c8e6c9);
                 padding: 12px;
                 border: 2px solid #27ae60;
                 border-radius: 6px;
@@ -474,7 +477,7 @@ class TransaccionOverlay(BaseOverlay):
                 font-weight: bold;
                 color: #1a237e;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                           stop:0 #e8eaf6, stop:1 #c5cae9);
+                                            stop:0 #e8eaf6, stop:1 #c5cae9);
                 padding: 12px 15px;
                 border-radius: 8px;
                 margin: 0px;
@@ -604,7 +607,7 @@ class TransaccionOverlay(BaseOverlay):
                 font-weight: bold;
                 color: #1a237e;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                           stop:0 #e8eaf6, stop:1 #c5cae9);
+                                            stop:0 #e8eaf6, stop:1 #c5cae9);
                 padding: 12px 15px;
                 border-radius: 8px;
                 margin: 0px;
@@ -1510,7 +1513,14 @@ class TransaccionOverlay(BaseOverlay):
         logger.info(f"🆕 Inicializando nueva transacción para inscripción {inscripcion_id}")
         
         try:
-            usuario_id = 2  # TODO: Obtener de variable global
+            if not self.usuario_id:
+                logger.error("❌ No hay usuario_id disponible para crear la transacción")
+                self.mostrar_mensaje("Error de Sesión", 
+                                    "No se pudo identificar al usuario. Por favor, inicie sesión nuevamente.", 
+                                    "error")
+                return False
+            
+            usuario_id = self.usuario_id
             fecha_actual = QDate.currentDate().toString("yyyy-MM-dd")
             
             # Ajustamos el diccionario eliminando 'inscripcion_id' que no existe en la tabla

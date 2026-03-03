@@ -67,8 +67,9 @@ class ProgramaOverlay(BaseOverlay):
         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"
     ]
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, usuario_id=None):
         super().__init__(parent, "🏛️ Programa Académico - UNSXX", 95, 95)
+        self.usuario_actual_id = usuario_id
         
         # Variables específicas
         self.programa_id: Optional[int] = None
